@@ -13,7 +13,16 @@ app.use(cors());
 
 // Routes Placeholder
 app.get('/', (req, res) => {
-  res.send('API is running...');
+  res.json({ 
+    message: 'ICO Authentication API is running',
+    version: '1.0.0',
+    status: 'healthy'
+  });
+});
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Define Routes
