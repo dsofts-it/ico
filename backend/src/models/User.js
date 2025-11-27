@@ -2,22 +2,52 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const addressSchema = new mongoose.Schema({
-  label: String,
-  line1: String,
-  line2: String,
-  city: String,
-  state: String,
-  postalCode: String,
+  label: {
+    type: String,
+    trim: true,
+  },
+  fullName: {
+    type: String,
+    trim: true,
+  },
+  phone: {
+    type: String,
+    trim: true,
+  },
+  line1: {
+    type: String,
+    trim: true,
+  },
+  line2: {
+    type: String,
+    trim: true,
+  },
+  city: {
+    type: String,
+    trim: true,
+  },
+  state: {
+    type: String,
+    trim: true,
+  },
+  postalCode: {
+    type: String,
+    trim: true,
+  },
   country: {
     type: String,
     default: 'IN',
+    trim: true,
   },
-  landmark: String,
+  landmark: {
+    type: String,
+    trim: true,
+  },
   isDefault: {
     type: Boolean,
     default: false,
   },
-}, { _id: false });
+});
 
 const userSchema = new mongoose.Schema({
   name: {
