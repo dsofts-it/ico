@@ -1,22 +1,44 @@
 const nodemailer = require('nodemailer');
-const sgMail = require('@sendgrid/mail');
 const twilio = require('twilio');
 
-// Simple Gmail SMTP email sender (using environment variables EMAIL_USER and EMAIL_PASS)
-const sendEmail = async (to, subject, text) => {
-  const transporter = nodemailer.createTransport({
+const hasSMTPConfig = () =>
+  process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+
+const hasGmailConfig = () =>
+  process.env.EMAIL_USER && process.env.EMAIL_PASS;
+
+const createSMTPTransport = () => {
+  if (!hasSMTPConfig()) {
+    return null;
+  }
+
+  const port = Number(process.env.SMTP_PORT) || 587;
+  const secure = process.env.SMTP_SECURE
+    ? process.env.SMTP_SECURE === 'true'
+    : port === 465;
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+};
+
+const createGmailTransport = () => {
+  if (!hasGmailConfig()) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
-  });
-
-  await transporter.sendMail({
-    from: `"nirvistra" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    text,
   });
 };
 
@@ -25,69 +47,45 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send OTP via email – prefers SendGrid, then Gmail SMTP, then generic SMTP fallback
+// Send OTP via email using SMTP credentials (Render/Gmail etc.)
 const sendEmailOTP = async (email, otp) => {
-  // 1️⃣ SendGrid (if configured)
-  if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) {
+  const subject = 'Your OTP Code';
+  const text = `Your OTP code is: ${otp}. It expires in 10 minutes.`;
+
+  if (hasSMTPConfig()) {
     try {
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      const msg = {
+      const transporter = createSMTPTransport();
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to: email,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Your OTP Code',
-        text: `Your OTP code is: ${otp}. It expires in 10 minutes.`,
-      };
-      await sgMail.send(msg);
-      console.log(`OTP sent via SendGrid to email: ${email}`);
+        subject,
+        text,
+      });
+      console.log(`OTP sent via SMTP to email: ${email}`);
       return true;
     } catch (error) {
-      console.error('Error sending email OTP via SendGrid:', error);
-      // fall back to other methods
+      console.error('Error sending email OTP via SMTP:', error);
+      // fall back to Gmail if configured
     }
   }
 
-  // 2️⃣ Gmail SMTP (if EMAIL_USER / EMAIL_PASS are set)
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  if (hasGmailConfig()) {
     try {
-      await sendEmail(
-        email,
-        'Your OTP Code',
-        `Your OTP code is: ${otp}. It expires in 10 minutes.`,
-      );
+      const transporter = createGmailTransport();
+      await transporter.sendMail({
+        from: `"nirvistra" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject,
+        text,
+      });
       console.log(`OTP sent via Gmail SMTP to email: ${email}`);
       return true;
     } catch (error) {
       console.error('Error sending email OTP via Gmail SMTP:', error);
-      // fall back to generic SMTP
     }
   }
 
-  // 3️⃣ Generic SMTP configuration (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)
-  try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-
-    const mailOptions = {
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: 'Your OTP Code',
-      text: `Your OTP code is: ${otp}. It expires in 10 minutes.`,
-    };
-
-    await transporter.sendMail(mailOptions);
-    console.log(`OTP sent via generic SMTP to email: ${email}`);
-    return true;
-  } catch (error) {
-    console.error('Error sending email OTP via generic SMTP:', error);
-    throw new Error('Failed to send OTP via Email');
-  }
+  throw new Error('Email transport is not configured');
 };
 
 // Send OTP via SMS using Twilio
@@ -109,32 +107,25 @@ const sendSmsOTP = async (mobile, otp) => {
       to: formattedMobile,
     });
 
-    console.log(`✓ SMS sent successfully! Message SID: ${message.sid}`);
+    console.log(`SMS sent successfully! Message SID: ${message.sid}`);
     console.log(`OTP sent to mobile: ${formattedMobile}`);
     return true;
   } catch (error) {
-    console.error('❌ Error sending SMS OTP:', error);
+    console.error('Error sending SMS OTP:', error);
     // Fallback: log OTP to console so the flow does not break
     console.log(`\n[FALLBACK - MOCK SMS] OTP for ${mobile}: ${otp}\n`);
     return true;
   }
 };
-
-// Unified OTP sender – type can be 'email', 'mobile' or 'sms'
+// Unified OTP sender - type can be 'email', 'mobile' or 'sms'
 const sendOTP = async (destination, otp, type = 'email') => {
   if (type === 'email') {
-    // Mock email when no credentials are provided
-    if (
-      !process.env.EMAIL_USER &&
-      !process.env.SENDGRID_API_KEY &&
-      !process.env.SMTP_USER
-    ) {
+    if (!hasSMTPConfig() && !hasGmailConfig()) {
       console.log(`[MOCK EMAIL] OTP for ${destination}: ${otp}`);
       return true;
     }
     return await sendEmailOTP(destination, otp);
   } else if (type === 'mobile' || type === 'sms') {
-    // Mock SMS when Twilio is not configured
     if (
       !process.env.TWILIO_ACCOUNT_SID ||
       process.env.TWILIO_ACCOUNT_SID.includes('your_twilio')
