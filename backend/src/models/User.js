@@ -1,6 +1,24 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const addressSchema = new mongoose.Schema({
+  label: String,
+  line1: String,
+  line2: String,
+  city: String,
+  state: String,
+  postalCode: String,
+  country: {
+    type: String,
+    default: 'IN',
+  },
+  landmark: String,
+  isDefault: {
+    type: Boolean,
+    default: false,
+  },
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -9,23 +27,28 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     unique: true,
-    sparse: true, // Allows multiple null values if user signs up with mobile
+    sparse: true,
     trim: true,
     lowercase: true,
   },
   mobile: {
     type: String,
     unique: true,
-    sparse: true, // Allows multiple null values if user signs up with email
+    sparse: true,
     trim: true,
   },
   password: {
     type: String,
-    // Required only if email is present, but we handle validation in controller usually
   },
   pin: {
-    type: String, // Hashed PIN
+    type: String,
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user',
+  },
+  addresses: [addressSchema],
   isEmailVerified: {
     type: Boolean,
     default: false,
@@ -35,8 +58,16 @@ const userSchema = new mongoose.Schema({
     default: false,
   },
   otp: {
-    code: String,
-    expiresAt: Date,
+    code: {
+      type: String,
+    },
+    expiresAt: {
+      type: Date,
+    },
+    channel: {
+      type: String,
+      enum: ['email', 'mobile'],
+    },
   },
 }, {
   timestamps: true,

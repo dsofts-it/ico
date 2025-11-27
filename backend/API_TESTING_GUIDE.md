@@ -7,6 +7,12 @@
 2. Click **Import** → **File** → Select `POSTMAN_COLLECTION.json`
 3. The collection will be imported with all endpoints ready to test
 
+## Security Notes
+
+- Email/password login returns 403 until the email address is verified.
+- Mobile OTP login and PIN login are blocked until the mobile number is verified.
+- If an OTP expires, call the same signup init endpoint again for that email or mobile to regenerate a secure OTP instead of creating a duplicate record.
+
 ## Testing Mobile Signup for Rohan Dede (8446031622)
 
 ### Step 1: Mobile Signup Init
@@ -32,6 +38,7 @@
 ```
 [MOCK SMS] OTP for 8446031622: 123456
 ```
+If the OTP expires, call this endpoint again with the same mobile number. The existing unverified user record will be reused and a fresh OTP will be generated securely.
 
 ### Step 2: Verify OTP
 **Endpoint:** `POST http://localhost:5000/api/auth/signup/verify`
@@ -52,6 +59,8 @@
   "_id": "69200d3e9664fef6e9aafb10",
   "name": "Rohan Dede",
   "mobile": "8446031622",
+  "isEmailVerified": false,
+  "isMobileVerified": true,
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
@@ -73,6 +82,7 @@ Authorization: Bearer <token_from_step_2>
 
 ### Step 4: Login with Mobile OTP
 **Endpoint:** `POST http://localhost:5000/api/auth/login/mobile-init`
+*(Returns 403 until the mobile number is verified.)*
 
 **Request Body:**
 ```json
@@ -94,6 +104,7 @@ Then verify with:
 
 ### Step 5: Login with PIN
 **Endpoint:** `POST http://localhost:5000/api/auth/login/pin`
+*(Requires a verified email/mobile and a PIN set via Step 3.)*
 
 **Request Body:**
 ```json
@@ -121,3 +132,9 @@ Then verify with:
 - OTPs are logged to console (mock mode) unless you configure real SMTP/Twilio credentials
 - JWT tokens expire in 30 days
 - Mobile number format: Include country code if needed (e.g., +918446031622)
+
+## Ecommerce & ICO
+- Product/catalog/cart/order APIs live under `/api/products`, `/api/cart`, and `/api/orders`.
+- Admin-only catalog management routes are namespaced under `/api/admin/*` (use an account with `role=admin`).
+- PhonePe payment payloads are returned from order creation + ICO buy endpoints. Supply real gateway credentials before using in production.
+- ICO endpoints: `/api/ico/price`, `/api/ico/summary`, `/api/ico/transactions`, `/api/ico/buy`, `/api/ico/sell`.

@@ -10,8 +10,13 @@ Complete authentication backend with Email/Mobile signup, OTP verification, and 
   - Email + Password
   - Mobile + OTP
   - PIN (after setup)
+- **Verification Enforcement**: Email/password, mobile OTP, and PIN logins require the corresponding email or mobile number to be verified via OTP.
+- **Secure OTP Resend**: Re-running signup init regenerates OTPs for unverified users without creating duplicates.
 - **Security**: JWT authentication, bcrypt password hashing
 - **OTP Delivery**: SMTP (email) and Twilio (SMS) integration
+- **Ecommerce Backend**: Category/product management, public catalog APIs, carts, checkout, and order tracking with admin tooling.
+- **Payments**: PhonePe payment session utility + callback endpoint (supply real credentials via env vars).
+- **ICO Module**: Token price from env, PhonePe-powered buy flow, sell requests, holdings & transaction history APIs.
 
 ## Tech Stack
 
@@ -55,6 +60,7 @@ Server will run on `http://localhost:5000`
 
 ## API Endpoints
 
+### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/auth/signup/email-init` | Initiate email signup |
@@ -65,6 +71,51 @@ Server will run on `http://localhost:5000`
 | POST | `/api/auth/login/mobile-init` | Request mobile OTP |
 | POST | `/api/auth/login/mobile-verify` | Verify mobile OTP & login |
 | POST | `/api/auth/login/pin` | Login with PIN |
+
+### Catalog & Ecommerce
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/products` | List products with filters/pagination |
+| GET | `/api/products/categories/list` | List active categories |
+| GET | `/api/products/:idOrSlug` | Fetch product details |
+| GET | `/api/cart` | Get authenticated user cart |
+| POST | `/api/cart/items` | Add item to cart |
+| PATCH | `/api/cart/items/:itemId` | Update cart item quantity |
+| DELETE | `/api/cart/items/:itemId` | Remove cart item |
+| DELETE | `/api/cart` | Clear cart |
+| POST | `/api/orders` | Create order + PhonePe session |
+| GET | `/api/orders` | List user orders |
+| GET | `/api/orders/:id` | Order details |
+
+### Admin
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/categories` | List categories |
+| POST | `/api/admin/categories` | Create category |
+| PUT | `/api/admin/categories/:id` | Update category |
+| DELETE | `/api/admin/categories/:id` | Delete category |
+| GET | `/api/admin/products` | List products (all) |
+| POST | `/api/admin/products` | Create product |
+| PUT | `/api/admin/products/:id` | Update product |
+| DELETE | `/api/admin/products/:id` | Delete product |
+| GET | `/api/orders/admin` | Admin order list |
+| PATCH | `/api/orders/admin/:id` | Update order/payment status |
+
+### ICO Token
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ico/price` | Public token price |
+| GET | `/api/ico/summary` | User holdings + valuation |
+| GET | `/api/ico/transactions` | User ICO transactions |
+| POST | `/api/ico/buy` | Initiate PhonePe buy |
+| POST | `/api/ico/sell` | Request sell/payout |
+
+### Payments
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/payments/phonepe/callback` | Webhook to update orders/ICO txs |
+
+**Important:** Email/password login only works after the email is verified. Mobile OTP and PIN login require the mobile number to be verified. If an OTP expires, call the corresponding signup init endpoint again to regenerate a secure code instead of creating duplicate users.
 
 ## Testing
 
@@ -82,6 +133,15 @@ For SMS OTP delivery, configure Twilio:
 4. For trial accounts, verify recipient numbers
 
 See `TWILIO_SETUP.md` for detailed setup instructions.
+
+### PhonePe Setup
+1. Obtain a PhonePe Merchant account + sandbox credentials.
+2. Populate `PHONEPE_MERCHANT_ID`, `PHONEPE_SALT_KEY`, `PHONEPE_SALT_INDEX`, and `PHONEPE_BASE_URL`.
+3. Set `PHONEPE_CALLBACK_URL` to the deployed `/api/payments/phonepe/callback` endpoint.
+4. Mobile app will receive `paymentSession` data (base64 payload + checksum) to redirect users to PhonePe.
+
+### ICO Token Config
+Set `ICO_TOKEN_SYMBOL` and `ICO_PRICE_INR` in env vars. The price is read on every request so you can adjust value without redeploying.
 
 ## Project Structure
 
