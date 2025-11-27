@@ -4,8 +4,10 @@ const twilio = require('twilio');
 const hasSMTPConfig = () =>
   process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
 
+// Gmail-style auth (supports either EMAIL_* or SMTP_* for convenience)
 const hasGmailConfig = () =>
-  process.env.EMAIL_USER && process.env.EMAIL_PASS;
+  (process.env.EMAIL_USER || process.env.SMTP_USER) &&
+  (process.env.EMAIL_PASS || process.env.SMTP_PASS);
 
 const createSMTPTransport = () => {
   if (!hasSMTPConfig()) {
@@ -33,11 +35,14 @@ const createGmailTransport = () => {
     return null;
   }
 
+  const user = process.env.EMAIL_USER || process.env.SMTP_USER;
+  const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user,
+      pass,
     },
   });
 };
@@ -72,8 +77,9 @@ const sendEmailOTP = async (email, otp) => {
   if (hasGmailConfig()) {
     try {
       const transporter = createGmailTransport();
+      const fromUser = process.env.EMAIL_USER || process.env.SMTP_USER;
       await transporter.sendMail({
-        from: `"nirvistra" <${process.env.EMAIL_USER}>`,
+        from: `"nirvistra" <${fromUser}>`,
         to: email,
         subject,
         text,
