@@ -9,13 +9,13 @@ const app = express();
 
 // CORS Configuration - Allow all origins for global accessibility
 const corsOptions = {
-  origin: '*', // Allow all origins
-  credentials: true, // Allow credentials (cookies, authorization headers, etc.)
-  optionsSuccessStatus: 200, // Some legacy browsers (IE11, various SmartTVs) choke on 204
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], // Allowed HTTP methods
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'], // Allowed headers
-  exposedHeaders: ['Content-Range', 'X-Content-Range'], // Headers exposed to the browser
-  maxAge: 86400 // Cache preflight request for 24 hours
+  origin: (origin, callback) => callback(null, true), // reflect requesting origin
+  credentials: false, // no cookies; Authorization header is allowed
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400
 };
 
 // Middleware
@@ -24,11 +24,11 @@ app.use(cors(corsOptions));
 
 // Additional CORS headers for extra compatibility
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.get('Origin') || '*';
+  res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
+
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
