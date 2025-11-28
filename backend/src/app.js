@@ -50,6 +50,10 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+app.get('/api/health', (req, res) => {
+  // Mirror /health for platforms or clients that prefix routes with /api
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Define Routes
 app.use('/api/auth', require('./routes/authRoutes'));
