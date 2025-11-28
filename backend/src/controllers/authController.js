@@ -23,6 +23,79 @@ const buildOTP = (channel) => ({
   channel,
 });
 
+// Normalize identifier to detect email vs mobile
+const parseIdentifier = (identifier = '') => {
+  const trimmed = identifier.trim();
+  if (!trimmed) return { type: '', value: '' };
+  if (trimmed.includes('@')) {
+    return { type: 'email', value: trimmed.toLowerCase() };
+  }
+  return { type: 'mobile', value: trimmed };
+};
+
+// @desc    Combined signup (email + mobile) with OTP to both
+// @route   POST /api/auth/signup/combined-init
+// @access  Public
+const signupCombinedInit = async (req, res) => {
+  const { name, email, mobile, password } = req.body;
+
+  if (!name || !email || !mobile) {
+    return res.status(400).json({ message: 'Name, email, and mobile are required' });
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const normalizedMobile = mobile.trim();
+
+  try {
+    const existingUser = await User.findOne({
+      $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }],
+    });
+
+    const salt = password ? await bcrypt.genSalt(10) : null;
+    const hashedPassword = password && salt ? await bcrypt.hash(password, salt) : undefined;
+    const otpPayload = buildOTP('email'); // stored as email, but OTP is sent to both channels
+
+    if (existingUser) {
+      if (existingUser.isEmailVerified && existingUser.isMobileVerified) {
+        return res.status(400).json({ message: 'User already exists with this email or mobile' });
+      }
+
+      existingUser.name = name || existingUser.name;
+      existingUser.email = normalizedEmail;
+      existingUser.mobile = normalizedMobile;
+      if (hashedPassword) existingUser.password = hashedPassword;
+      existingUser.otp = otpPayload;
+
+      await existingUser.save();
+      await sendOTP(existingUser.email, otpPayload.code, 'email');
+      await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+
+      return res.status(200).json({
+        message: 'Signup re-initiated. OTP sent to email and mobile.',
+        userId: existingUser._id,
+      });
+    }
+
+    const user = await User.create({
+      name,
+      email: normalizedEmail,
+      mobile: normalizedMobile,
+      password: hashedPassword,
+      otp: otpPayload,
+    });
+
+    await sendOTP(user.email, otpPayload.code, 'email');
+    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+
+    res.status(201).json({
+      message: 'Signup initiated. OTP sent to email and mobile.',
+      userId: user._id,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Register user with Email (Step 1)
 // @route   POST /api/auth/signup/email-init
 // @access  Public
@@ -154,21 +227,14 @@ const verifyOTP = async (req, res) => {
     const requestedChannel = normalizeChannel(type);
     const verificationChannel = requestedChannel || storedChannel;
 
-    if (!verificationChannel) {
-      return res.status(400).json({ message: 'Verification type missing' });
-    }
-
-    if (requestedChannel && storedChannel && requestedChannel !== storedChannel) {
-      return res.status(400).json({ message: 'OTP verification type mismatch' });
-    }
-
     if (user.otp.code !== otp || (user.otp.expiresAt && user.otp.expiresAt < new Date())) {
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
     user.otp = undefined;
-    if (verificationChannel === 'email') user.isEmailVerified = true;
-    if (verificationChannel === 'mobile') user.isMobileVerified = true;
+    const verifyBoth = Boolean(user.email && user.mobile);
+    if (verifyBoth || verificationChannel === 'email') user.isEmailVerified = true;
+    if (verifyBoth || verificationChannel === 'mobile') user.isMobileVerified = true;
 
     await user.save();
 
@@ -348,6 +414,91 @@ const loginMobileVerify = async (req, res) => {
   }
 };
 
+// @desc    Login with Email or Mobile (Request OTP)
+// @route   POST /api/auth/login/otp-init
+// @access  Public
+const loginOtpInit = async (req, res) => {
+  const { identifier } = req.body;
+
+  if (!identifier) {
+    return res.status(400).json({ message: 'Email or mobile is required' });
+  }
+
+  const { type, value } = parseIdentifier(identifier);
+
+  try {
+    const user = await User.findOne(
+      type === 'email' ? { email: value } : { mobile: value },
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (type === 'email' && !user.isEmailVerified) {
+      return res.status(403).json({ message: 'Email not verified' });
+    }
+
+    if (type === 'mobile' && !user.isMobileVerified) {
+      return res.status(403).json({ message: 'Mobile number is not verified' });
+    }
+
+    const otpPayload = buildOTP(type || 'email');
+    user.otp = otpPayload;
+    await user.save();
+
+    await sendOTP(value, otpPayload.code, type || 'email');
+
+    res.json({ message: 'OTP sent for login', userId: user._id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Login with Email or Mobile (Verify OTP)
+// @route   POST /api/auth/login/otp-verify
+// @access  Public
+const loginOtpVerify = async (req, res) => {
+  const { identifier, otp } = req.body;
+
+  if (!identifier || !otp) {
+    return res.status(400).json({ message: 'Identifier and OTP are required' });
+  }
+
+  const { type, value } = parseIdentifier(identifier);
+
+  try {
+    const user = await User.findOne(
+      type === 'email' ? { email: value } : { mobile: value },
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.otp || !user.otp.code) {
+      return res.status(400).json({ message: 'No OTP pending verification' });
+    }
+
+    if (user.otp.code !== otp || (user.otp.expiresAt && user.otp.expiresAt < new Date())) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
+
+    user.otp = undefined;
+    await user.save();
+
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      token: generateToken(user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Login with PIN
 // @route   POST /api/auth/login/pin
 // @access  Public (but requires identifier)
@@ -411,6 +562,7 @@ const loginPIN = async (req, res) => {
 };
 
 module.exports = {
+  signupCombinedInit,
   signupEmailInit,
   signupMobileInit,
   verifyOTP,
@@ -418,5 +570,7 @@ module.exports = {
   loginEmail,
   loginMobileInit,
   loginMobileVerify,
+  loginOtpInit,
+  loginOtpVerify,
   loginPIN,
 };

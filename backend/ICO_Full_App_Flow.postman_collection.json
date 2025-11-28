@@ -122,6 +122,49 @@
       "name": "Auth - Signup & Login",
       "item": [
         {
+          "name": "Signup Combined (Email + Mobile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/signup/combined-init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "signup",
+                "combined-init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\",\n  \"mobile\": \"{{mobileNumber}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data = null;",
+                  "try { data = pm.response.json(); } catch (err) {}",
+                  "const v_userId = data && data.userId;",
+                  "if (v_userId) { pm.collectionVariables.set('userId', v_userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Signup Email - Init",
           "request": {
             "method": "POST",
@@ -398,6 +441,94 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"mobile\": \"{{mobileNumber}}\",\n  \"otp\": \"{{mobileOtp}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data = null;",
+                  "try { data = pm.response.json(); } catch (err) {}",
+                  "const v_userToken = data && data.token;",
+                  "if (v_userToken) { pm.collectionVariables.set('userToken', v_userToken); }",
+                  "const v_userId = data && data._id;",
+                  "if (v_userId) { pm.collectionVariables.set('userId', v_userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - OTP Init (Email or Mobile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/otp-init",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                "otp-init"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{userEmail}}\"\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "let data = null;",
+                  "try { data = pm.response.json(); } catch (err) {}",
+                  "const v_userId = data && data.userId;",
+                  "if (v_userId) { pm.collectionVariables.set('userId', v_userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - OTP Verify (Email or Mobile)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/otp-verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                "otp-verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{userEmail}}\",\n  \"otp\": \"{{otpCode}}\"\n}"
             }
           },
           "response": [],

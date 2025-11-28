@@ -79,6 +79,19 @@ VARIABLES = [
 
 AUTH_ITEMS = [
     item(
+        "Signup Combined (Email + Mobile)",
+        "POST",
+        "api/auth/signup/combined-init",
+        JSON_HEADER,
+        {
+            "name": "{{userName}}",
+            "email": "{{userEmail}}",
+            "mobile": "{{mobileNumber}}",
+            "password": "{{userPassword}}",
+        },
+        [("data && data.userId", "userId")],
+    ),
+    item(
         "Signup Email - Init",
         "POST",
         "api/auth/signup/email-init",
@@ -131,6 +144,22 @@ AUTH_ITEMS = [
         "api/auth/login/mobile-verify",
         JSON_HEADER,
         {"mobile": "{{mobileNumber}}", "otp": "{{mobileOtp}}"},
+        [("data && data.token", "userToken"), ("data && data._id", "userId")],
+    ),
+    item(
+        "Login - OTP Init (Email or Mobile)",
+        "POST",
+        "api/auth/login/otp-init",
+        JSON_HEADER,
+        {"identifier": "{{userEmail}}"},
+        [("data && data.userId", "userId")],
+    ),
+    item(
+        "Login - OTP Verify (Email or Mobile)",
+        "POST",
+        "api/auth/login/otp-verify",
+        JSON_HEADER,
+        {"identifier": "{{userEmail}}", "otp": "{{otpCode}}"},
         [("data && data.token", "userToken"), ("data && data._id", "userId")],
     ),
     item(
