@@ -1,6 +1,9 @@
 const Order = require('../models/Order');
 const IcoTransaction = require('../models/IcoTransaction');
 const IcoHolding = require('../models/IcoHolding');
+const WalletTransaction = require('../models/WalletTransaction');
+const WalletAccount = require('../models/WalletAccount');
+const { distributeReferralCommission } = require('../utils/referralService');
 
 const PHONEPE_SUCCESS_CODES = ['PAYMENT_SUCCESS', 'SUCCESS'];
 
@@ -26,6 +29,16 @@ const handlePhonePeCallback = async (req, res) => {
       order.phonePePayload = undefined;
       await order.save();
       handled = true;
+
+      if (status === 'paid') {
+        const orderAmount = order.totals?.grandTotal || order.totals?.subtotal || 0;
+        await distributeReferralCommission({
+          buyerId: order.user,
+          amount: orderAmount,
+          sourceType: 'order',
+          sourceId: order._id.toString(),
+        });
+      }
     }
 
     if (!handled) {
@@ -41,10 +54,45 @@ const handlePhonePeCallback = async (req, res) => {
             { $inc: { balance: transaction.tokenAmount } },
             { new: true, upsert: true },
           );
+          await distributeReferralCommission({
+            buyerId: transaction.user,
+            amount: transaction.fiatAmount,
+            sourceType: 'ico',
+            sourceId: transaction._id.toString(),
+          });
           handled = true;
           console.log('ICO holding updated', holding.balance);
         } else if (status !== 'paid' && transaction.type === 'buy') {
           console.log('ICO transaction failed');
+        }
+      }
+    }
+
+    if (!handled) {
+      const walletTransaction = await WalletTransaction.findById(merchantTransactionId);
+      if (walletTransaction) {
+        handled = true;
+        walletTransaction.status = status === 'paid' ? 'completed' : 'failed';
+        walletTransaction.phonePeTransactionId = transactionId;
+        walletTransaction.phonePeResponse = payload;
+        await walletTransaction.save();
+
+        if (status === 'paid' && walletTransaction.type === 'credit') {
+          const walletQuery = walletTransaction.wallet
+            ? { _id: walletTransaction.wallet }
+            : { user: walletTransaction.user };
+
+          await WalletAccount.findOneAndUpdate(
+            walletQuery,
+            {
+              $inc: {
+                balance: walletTransaction.amount,
+                totalCredited: walletTransaction.amount,
+              },
+              $setOnInsert: { user: walletTransaction.user },
+            },
+            { upsert: true, setDefaultsOnInsert: true },
+          );
         }
       }
     }

@@ -5,6 +5,8 @@ const {
   updateAddress,
   deleteAddress,
   setDefaultAddress,
+  getReferralSummary,
+  listReferralEarnings,
 } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -17,5 +19,7 @@ router.post('/addresses', addAddress);
 router.put('/addresses/:addressId', updateAddress);
 router.delete('/addresses/:addressId', deleteAddress);
 router.patch('/addresses/:addressId/default', setDefaultAddress);
+router.get('/referral/summary', getReferralSummary);
+router.get('/referral/earnings', listReferralEarnings);
 
 module.exports = router;

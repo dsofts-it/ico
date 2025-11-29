@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const { generateOTP, sendOTP } = require('../utils/otpService');
+const { ensureReferralCode, applyReferralCodeOnSignup } = require('../utils/referralService');
 const bcrypt = require('bcryptjs');
 
 const OTP_TTL_MINUTES = 10;
@@ -37,7 +38,13 @@ const parseIdentifier = (identifier = '') => {
 // @route   POST /api/auth/signup/combined-init
 // @access  Public
 const signupCombinedInit = async (req, res) => {
-  const { name, email, mobile, password } = req.body;
+  const {
+    name,
+    email,
+    mobile,
+    password,
+    referralCode,
+  } = req.body;
 
   if (!name || !email || !mobile) {
     return res.status(400).json({ message: 'Name, email, and mobile are required' });
@@ -66,6 +73,18 @@ const signupCombinedInit = async (req, res) => {
       if (hashedPassword) existingUser.password = hashedPassword;
       existingUser.otp = otpPayload;
 
+      const ensuredCode = await ensureReferralCode(existingUser);
+      if (ensuredCode) {
+        await existingUser.save();
+      }
+      if (referralCode) {
+        try {
+          await applyReferralCodeOnSignup(existingUser, referralCode);
+        } catch (err) {
+          return res.status(err.statusCode || 400).json({ message: err.message });
+        }
+      }
+
       await existingUser.save();
       await sendOTP(existingUser.email, otpPayload.code, 'email');
       await sendOTP(normalizedMobile, otpPayload.code, 'sms');
@@ -84,6 +103,18 @@ const signupCombinedInit = async (req, res) => {
       otp: otpPayload,
     });
 
+    const ensuredCode = await ensureReferralCode(user);
+    if (ensuredCode) {
+      await user.save();
+    }
+    if (referralCode) {
+      try {
+        await applyReferralCodeOnSignup(user, referralCode);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ message: err.message });
+      }
+    }
+
     await sendOTP(user.email, otpPayload.code, 'email');
     await sendOTP(normalizedMobile, otpPayload.code, 'sms');
 
@@ -100,7 +131,7 @@ const signupCombinedInit = async (req, res) => {
 // @route   POST /api/auth/signup/email-init
 // @access  Public
 const signupEmailInit = async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, referralCode } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'Name, email, and password are required' });
@@ -124,6 +155,18 @@ const signupEmailInit = async (req, res) => {
       existingUser.password = hashedPassword;
       existingUser.otp = otpPayload;
 
+      const ensuredCode = await ensureReferralCode(existingUser);
+      if (ensuredCode) {
+        await existingUser.save();
+      }
+      if (referralCode) {
+        try {
+          await applyReferralCodeOnSignup(existingUser, referralCode);
+        } catch (err) {
+          return res.status(err.statusCode || 400).json({ message: err.message });
+        }
+      }
+
       await existingUser.save();
       await sendOTP(existingUser.email, otpPayload.code, 'email');
 
@@ -140,6 +183,18 @@ const signupEmailInit = async (req, res) => {
       otp: otpPayload,
     });
 
+    const ensuredCode = await ensureReferralCode(user);
+    if (ensuredCode) {
+      await user.save();
+    }
+    if (referralCode) {
+      try {
+        await applyReferralCodeOnSignup(user, referralCode);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ message: err.message });
+      }
+    }
+
     await sendOTP(user.email, otpPayload.code, 'email');
 
     res.status(201).json({
@@ -155,7 +210,7 @@ const signupEmailInit = async (req, res) => {
 // @route   POST /api/auth/signup/mobile-init
 // @access  Public
 const signupMobileInit = async (req, res) => {
-  const { name, mobile } = req.body;
+  const { name, mobile, referralCode } = req.body;
 
   if (!name || !mobile) {
     return res.status(400).json({ message: 'Name and mobile are required' });
@@ -176,6 +231,18 @@ const signupMobileInit = async (req, res) => {
       existingUser.mobile = normalizedMobile;
       existingUser.otp = otpPayload;
 
+      const ensuredCode = await ensureReferralCode(existingUser);
+      if (ensuredCode) {
+        await existingUser.save();
+      }
+      if (referralCode) {
+        try {
+          await applyReferralCodeOnSignup(existingUser, referralCode);
+        } catch (err) {
+          return res.status(err.statusCode || 400).json({ message: err.message });
+        }
+      }
+
       await existingUser.save();
       await sendOTP(normalizedMobile, otpPayload.code, 'sms');
 
@@ -190,6 +257,18 @@ const signupMobileInit = async (req, res) => {
       mobile: normalizedMobile,
       otp: otpPayload,
     });
+
+    const ensuredCode = await ensureReferralCode(user);
+    if (ensuredCode) {
+      await user.save();
+    }
+    if (referralCode) {
+      try {
+        await applyReferralCodeOnSignup(user, referralCode);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ message: err.message });
+      }
+    }
 
     await sendOTP(normalizedMobile, otpPayload.code, 'sms');
 

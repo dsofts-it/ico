@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const ReferralEarning = require('../models/ReferralEarning');
 
 const REQUIRED_FIELDS = ['line1', 'city', 'state', 'postalCode'];
 const ADDRESS_FIELDS = [
@@ -208,10 +209,40 @@ const setDefaultAddress = async (req, res) => {
   }
 };
 
+const getReferralSummary = async (req, res) => {
+  try {
+    const user = await ensureUserExists(req.user._id);
+    res.json({
+      referralCode: user.referralCode,
+      referredBy: user.referredBy,
+      referralLevel: user.referralLevel || 0,
+      referralDownlineCounts: user.referralDownlineCounts || [],
+      referralWalletBalance: user.referralWalletBalance || 0,
+      referralTotalEarned: user.referralTotalEarned || 0,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+};
+
+const listReferralEarnings = async (req, res) => {
+  try {
+    const earnings = await ReferralEarning.find({ earner: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(200);
+    res.json(earnings);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAddresses,
   addAddress,
   updateAddress,
   deleteAddress,
   setDefaultAddress,
+  getReferralSummary,
+  listReferralEarnings,
 };

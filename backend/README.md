@@ -110,6 +110,16 @@ Server will run on `http://localhost:5000`
 | POST | `/api/ico/buy` | Initiate PhonePe buy |
 | POST | `/api/ico/sell` | Request sell/payout |
 
+### Wallet
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/wallet/summary` | Wallet balance, stats, and recent activity |
+| GET | `/api/wallet/transactions` | Paginated wallet transaction history |
+| POST | `/api/wallet/topup` | Initiate PhonePe wallet top-up |
+| POST | `/api/wallet/withdraw` | Request manual withdrawal/payout |
+| GET | `/api/wallet/admin/transactions` | Admin wallet transaction list (requires admin) |
+| PATCH | `/api/wallet/admin/transactions/:transactionId` | Admin update for withdrawal statuses |
+
 ### Payments
 | Method | Endpoint | Description |
 |--------|----------|-------------|

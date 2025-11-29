@@ -78,6 +78,39 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'admin'],
     default: 'user',
   },
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true,
+  },
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  referralPath: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
+  referralLevel: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 8,
+  },
+  referralDownlineCounts: {
+    type: [Number],
+    default: () => Array(9).fill(0), // depth 0-8
+  },
+  referralWalletBalance: {
+    type: Number,
+    default: 0,
+  },
+  referralTotalEarned: {
+    type: Number,
+    default: 0,
+  },
   addresses: [addressSchema],
   isEmailVerified: {
     type: Boolean,
