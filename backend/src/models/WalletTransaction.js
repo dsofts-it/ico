@@ -18,7 +18,7 @@ const walletTransactionSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['topup', 'purchase', 'withdrawal', 'refund', 'adjustment'],
+    enum: ['topup', 'purchase', 'withdrawal', 'refund', 'adjustment', 'referral'],
     default: 'topup',
   },
   amount: {

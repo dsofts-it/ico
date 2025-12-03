@@ -5,6 +5,7 @@ const {
   listWalletTransactions,
   initiateWalletTopup,
   requestWalletWithdrawal,
+  redeemReferralEarnings,
   adminListWalletTransactions,
   adminUpdateWalletTransaction,
 } = require('../controllers/walletController');
@@ -16,6 +17,7 @@ router.get('/summary', getWalletSummary);
 router.get('/transactions', listWalletTransactions);
 router.post('/topup', initiateWalletTopup);
 router.post('/withdraw', requestWalletWithdrawal);
+router.post('/referral/redeem', redeemReferralEarnings);
 
 router.get('/admin/transactions', requireAdmin, adminListWalletTransactions);
 router.patch('/admin/transactions/:transactionId', requireAdmin, adminUpdateWalletTransaction);

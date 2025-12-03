@@ -7,6 +7,7 @@ const {
   verifyOTP,
   setupPIN,
   loginEmail,
+  loginMobile,
   loginMobileInit,
   loginMobileVerify,
   loginOtpInit,
@@ -26,6 +27,7 @@ router.post('/pin/setup', protect, setupPIN);
 
 // Login
 router.post('/login/email', loginEmail);
+router.post('/login/mobile', loginMobile);
 router.post('/login/otp-init', loginOtpInit);
 router.post('/login/otp-verify', loginOtpVerify);
 router.post('/login/mobile-init', loginMobileInit);

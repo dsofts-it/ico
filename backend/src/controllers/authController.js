@@ -3,6 +3,7 @@ const generateToken = require('../utils/generateToken');
 const { generateOTP, sendOTP } = require('../utils/otpService');
 const { ensureReferralCode, applyReferralCodeOnSignup } = require('../utils/referralService');
 const bcrypt = require('bcryptjs');
+const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
 const OTP_TTL_MINUTES = 10;
 
@@ -212,8 +213,8 @@ const signupEmailInit = async (req, res) => {
 const signupMobileInit = async (req, res) => {
   const { name, mobile, referralCode } = req.body;
 
-  if (!name || !mobile) {
-    return res.status(400).json({ message: 'Name and mobile are required' });
+  if (!name || !mobile || !referralCode) {
+    return res.status(400).json({ message: 'Name, mobile, and referral code are required' });
   }
 
   const normalizedMobile = mobile.trim();
@@ -235,12 +236,10 @@ const signupMobileInit = async (req, res) => {
       if (ensuredCode) {
         await existingUser.save();
       }
-      if (referralCode) {
-        try {
-          await applyReferralCodeOnSignup(existingUser, referralCode);
-        } catch (err) {
-          return res.status(err.statusCode || 400).json({ message: err.message });
-        }
+      try {
+        await applyReferralCodeOnSignup(existingUser, referralCode);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ message: err.message });
       }
 
       await existingUser.save();
@@ -262,12 +261,10 @@ const signupMobileInit = async (req, res) => {
     if (ensuredCode) {
       await user.save();
     }
-    if (referralCode) {
-      try {
-        await applyReferralCodeOnSignup(user, referralCode);
-      } catch (err) {
-        return res.status(err.statusCode || 400).json({ message: err.message });
-      }
+    try {
+      await applyReferralCodeOnSignup(user, referralCode);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ message: err.message });
     }
 
     await sendOTP(normalizedMobile, otpPayload.code, 'sms');
@@ -285,7 +282,7 @@ const signupMobileInit = async (req, res) => {
 // @route   POST /api/auth/signup/verify
 // @access  Public
 const verifyOTP = async (req, res) => {
-  const { userId, otp, type } = req.body;
+  const { userId, otp, type, pin } = req.body;
 
   if (!userId || !otp) {
     return res.status(400).json({ message: 'User ID and OTP are required' });
@@ -315,7 +312,20 @@ const verifyOTP = async (req, res) => {
     if (verifyBoth || verificationChannel === 'email') user.isEmailVerified = true;
     if (verifyBoth || verificationChannel === 'mobile') user.isMobileVerified = true;
 
+    let pinSet = false;
+    if (pin !== undefined && pin !== null) {
+      const pinString = String(pin);
+      if (pinString.length < 4) {
+        return res.status(400).json({ message: 'PIN must be at least 4 characters long' });
+      }
+      const salt = await bcrypt.genSalt(10);
+      user.pin = await bcrypt.hash(pinString, salt);
+      pinSet = true;
+    }
+
+    await ensureReferralCode(user);
     await user.save();
+    await getOrCreateWalletAccount(user._id);
 
     res.json({
       _id: user._id,
@@ -324,6 +334,8 @@ const verifyOTP = async (req, res) => {
       mobile: user.mobile,
       isEmailVerified: user.isEmailVerified,
       isMobileVerified: user.isMobileVerified,
+      hasPin: Boolean(user.pin),
+      pinUpdated: pinSet,
       token: generateToken(user._id),
     });
   } catch (error) {
@@ -393,6 +405,7 @@ const loginEmail = async (req, res) => {
     }
 
     if (await user.matchPassword(password)) {
+      await getOrCreateWalletAccount(user._id);
       return res.json({
         _id: user._id,
         name: user.name,
@@ -482,11 +495,97 @@ const loginMobileVerify = async (req, res) => {
     user.otp = undefined;
     await user.save();
 
+    await getOrCreateWalletAccount(user._id);
+
     res.json({
       _id: user._id,
       name: user.name,
       mobile: user.mobile,
+      hasPin: Boolean(user.pin),
       token: generateToken(user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Login with Mobile (one endpoint: send OTP, verify OTP, or login by PIN)
+// @route   POST /api/auth/login/mobile
+// @access  Public
+const loginMobile = async (req, res) => {
+  const { mobile, otp, pin } = req.body;
+
+  if (!mobile) {
+    return res.status(400).json({ message: 'Mobile number is required' });
+  }
+
+  const normalizedMobile = mobile.trim();
+
+  try {
+    const user = await User.findOne({ mobile: normalizedMobile });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.isMobileVerified) {
+      return res.status(403).json({ message: 'Mobile number is not verified' });
+    }
+
+    if (pin !== undefined && pin !== null) {
+      if (!user.pin) {
+        return res.status(400).json({ message: 'PIN not set for this user' });
+      }
+      const pinString = String(pin);
+      if (await user.matchPin(pinString)) {
+        await getOrCreateWalletAccount(user._id);
+        return res.json({
+          _id: user._id,
+          name: user.name,
+          mobile: user.mobile,
+          hasPin: true,
+          token: generateToken(user._id),
+        });
+      }
+      return res.status(401).json({ message: 'Invalid PIN' });
+    }
+
+    if (otp) {
+      if (!user.otp || !user.otp.code) {
+        return res.status(400).json({ message: 'No OTP pending verification' });
+      }
+
+      const channel = normalizeChannel(user.otp.channel || 'mobile');
+      if (channel !== 'mobile') {
+        return res.status(400).json({ message: 'OTP verification type mismatch' });
+      }
+
+      if (user.otp.code !== otp || (user.otp.expiresAt && user.otp.expiresAt < new Date())) {
+        return res.status(400).json({ message: 'Invalid or expired OTP' });
+      }
+
+      user.otp = undefined;
+      await user.save();
+      await getOrCreateWalletAccount(user._id);
+
+      return res.json({
+        _id: user._id,
+        name: user.name,
+        mobile: user.mobile,
+        hasPin: Boolean(user.pin),
+        token: generateToken(user._id),
+      });
+    }
+
+    const otpPayload = buildOTP('mobile');
+    user.otp = otpPayload;
+    await user.save();
+    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+
+    return res.json({
+      message: 'OTP sent to mobile',
+      userId: user._id,
+      otpExpiresAt: otpPayload.expiresAt,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -566,6 +665,8 @@ const loginOtpVerify = async (req, res) => {
     user.otp = undefined;
     await user.save();
 
+    await getOrCreateWalletAccount(user._id);
+
     res.json({
       _id: user._id,
       name: user.name,
@@ -625,11 +726,13 @@ const loginPIN = async (req, res) => {
     const pinString = String(pin);
 
     if (await user.matchPin(pinString)) {
+      await getOrCreateWalletAccount(user._id);
       res.json({
         _id: user._id,
         name: user.name,
         email: user.email,
         mobile: user.mobile,
+        hasPin: true,
         token: generateToken(user._id),
       });
     } else {
@@ -647,6 +750,7 @@ module.exports = {
   verifyOTP,
   setupPIN,
   loginEmail,
+  loginMobile,
   loginMobileInit,
   loginMobileVerify,
   loginOtpInit,

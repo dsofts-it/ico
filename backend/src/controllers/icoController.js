@@ -1,6 +1,9 @@
 const IcoHolding = require('../models/IcoHolding');
 const IcoTransaction = require('../models/IcoTransaction');
+const WalletTransaction = require('../models/WalletTransaction');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
+const { getOrCreateWalletAccount } = require('../utils/walletAccount');
+const { distributeReferralCommission } = require('../utils/referralService');
 
 const getTokenPrice = () => {
   const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
@@ -53,8 +56,9 @@ const listIcoTransactions = async (req, res) => {
 };
 
 const initiateIcoBuy = async (req, res) => {
-  const { tokenAmount, fiatAmount } = req.body;
+  const { tokenAmount, fiatAmount, useWallet, paymentMethod } = req.body;
   const price = getTokenPrice();
+  const tokenSymbol = getTokenSymbol();
 
   if (!tokenAmount && !fiatAmount) {
     return res.status(400).json({ message: 'tokenAmount or fiatAmount is required' });
@@ -63,11 +67,83 @@ const initiateIcoBuy = async (req, res) => {
   const tokens = tokenAmount ? Number(tokenAmount) : Number(fiatAmount) / price;
   const amount = fiatAmount ? Number(fiatAmount) : tokens * price;
 
-  if (tokens <= 0 || amount <= 0) {
+  if (Number.isNaN(tokens) || Number.isNaN(amount) || tokens <= 0 || amount <= 0) {
     return res.status(400).json({ message: 'Invalid purchase amount' });
   }
 
+  const payWithWallet = useWallet === true || (paymentMethod || '').toLowerCase() === 'wallet';
+
   try {
+    if (payWithWallet) {
+      const wallet = await getOrCreateWalletAccount(req.user._id);
+      if (wallet.balance < amount) {
+        return res.status(400).json({ message: 'Insufficient wallet balance' });
+      }
+
+      wallet.balance -= amount;
+      wallet.totalDebited += amount;
+      await wallet.save();
+
+      const transaction = await IcoTransaction.create({
+        user: req.user._id,
+        type: 'buy',
+        tokenAmount: tokens,
+        pricePerToken: price,
+        fiatAmount: amount,
+        status: 'completed',
+        paymentReference: 'wallet',
+      });
+
+      const holding = await IcoHolding.findOneAndUpdate(
+        { user: req.user._id },
+        { $inc: { balance: tokens } },
+        { new: true, upsert: true },
+      );
+
+      const walletTx = await WalletTransaction.create({
+        user: req.user._id,
+        wallet: wallet._id,
+        type: 'debit',
+        category: 'purchase',
+        amount,
+        currency: wallet.currency,
+        status: 'completed',
+        description: `Wallet purchase of ${tokens} ${tokenSymbol} tokens`,
+        metadata: {
+          tokenAmount: tokens,
+          pricePerToken: price,
+          tokenSymbol,
+          icoTransactionId: transaction._id,
+        },
+      });
+
+      transaction.paymentReference = walletTx._id.toString();
+      await transaction.save();
+
+      await distributeReferralCommission({
+        buyerId: req.user._id,
+        amount,
+        sourceType: 'ico',
+        sourceId: transaction._id.toString(),
+      });
+
+      return res.status(201).json({
+        transaction,
+        wallet: {
+          balance: wallet.balance,
+          currency: wallet.currency,
+        },
+        holding: {
+          balance: holding.balance,
+          tokenSymbol,
+          valuation: holding.balance * price,
+        },
+        referral: {
+          credited: true,
+        },
+      });
+    }
+
     const transaction = await IcoTransaction.create({
       user: req.user._id,
       type: 'buy',

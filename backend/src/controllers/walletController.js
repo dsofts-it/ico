@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const WalletAccount = require('../models/WalletAccount');
 const WalletTransaction = require('../models/WalletTransaction');
+const User = require('../models/User');
+const IcoHolding = require('../models/IcoHolding');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
@@ -8,6 +10,7 @@ const CALLBACK_URL = process.env.PHONEPE_CALLBACK_URL || 'https://your-domain.co
 const MIN_TOPUP_AMOUNT = Number(process.env.WALLET_MIN_TOPUP_AMOUNT || 10);
 const MAX_TOPUP_AMOUNT = Number(process.env.WALLET_MAX_TOPUP_AMOUNT || 200000);
 const MIN_WITHDRAW_AMOUNT = Number(process.env.WALLET_MIN_WITHDRAW_AMOUNT || 100);
+const MIN_REFERRAL_REDEEM = Number(process.env.WALLET_MIN_REFERRAL_REDEEM || 10);
 const WALLET_TRANSACTION_STATUSES = ['initiated', 'pending', 'completed', 'failed', 'cancelled'];
 
 const sanitizeTransaction = (transaction) => {
@@ -20,10 +23,22 @@ const sanitizeTransaction = (transaction) => {
   return doc;
 };
 
+const getTokenMeta = () => {
+  const tokenSymbol = process.env.ICO_TOKEN_SYMBOL || 'ICOX';
+  const rawPrice = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
+  const tokenPrice = Number.isNaN(rawPrice) || rawPrice <= 0 ? 10 : rawPrice;
+  return { tokenSymbol, tokenPrice };
+};
+
 const getWalletSummary = async (req, res) => {
   try {
-    const wallet = await getOrCreateWalletAccount(req.user._id);
+    const walletPromise = getOrCreateWalletAccount(req.user._id);
+    const userPromise = User.findById(req.user._id);
+    const holdingPromise = IcoHolding.findOne({ user: req.user._id });
+
+    const [wallet, user, holding] = await Promise.all([walletPromise, userPromise, holdingPromise]);
     const userObjectId = new mongoose.Types.ObjectId(req.user._id);
+    const { tokenPrice, tokenSymbol } = getTokenMeta();
 
     const [pendingTopups] = await WalletTransaction.aggregate([
       {
@@ -54,6 +69,18 @@ const getWalletSummary = async (req, res) => {
         totalCredited: wallet.totalCredited,
         totalDebited: wallet.totalDebited,
         updatedAt: wallet.updatedAt,
+      },
+      referral: user ? {
+        balance: user.referralWalletBalance || 0,
+        totalEarned: user.referralTotalEarned || 0,
+        code: user.referralCode,
+        level: user.referralLevel || 0,
+      } : undefined,
+      tokenWallet: {
+        balance: holding?.balance || 0,
+        tokenSymbol,
+        price: tokenPrice,
+        valuation: (holding?.balance || 0) * tokenPrice,
       },
       pendingTopups: pendingTopups?.amount || 0,
       pendingTopupCount: pendingTopups?.count || 0,
@@ -226,6 +253,62 @@ const requestWalletWithdrawal = async (req, res) => {
   }
 };
 
+const redeemReferralEarnings = async (req, res) => {
+  try {
+    const amount = Number(req.body.amount);
+    if (Number.isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: 'A valid amount is required' });
+    }
+
+    if (amount < MIN_REFERRAL_REDEEM) {
+      return res.status(400).json({ message: `Minimum referral redemption is INR ${MIN_REFERRAL_REDEEM}` });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const available = user.referralWalletBalance || 0;
+    if (available < amount) {
+      return res.status(400).json({ message: 'Insufficient referral balance' });
+    }
+
+    user.referralWalletBalance = available - amount;
+    await user.save();
+
+    const wallet = await getOrCreateWalletAccount(user._id);
+    wallet.balance += amount;
+    wallet.totalCredited += amount;
+    await wallet.save();
+
+    const transaction = await WalletTransaction.create({
+      user: user._id,
+      wallet: wallet._id,
+      type: 'credit',
+      category: 'referral',
+      amount,
+      currency: wallet.currency,
+      status: 'completed',
+      description: 'Referral earnings moved to main wallet',
+      metadata: {
+        note: req.body.note?.trim(),
+      },
+    });
+
+    res.json({
+      wallet: {
+        balance: wallet.balance,
+        currency: wallet.currency,
+      },
+      referralWalletBalance: user.referralWalletBalance,
+      transaction: sanitizeTransaction(transaction),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const adminListWalletTransactions = async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
@@ -333,6 +416,7 @@ module.exports = {
   listWalletTransactions,
   initiateWalletTopup,
   requestWalletWithdrawal,
+  redeemReferralEarnings,
   adminListWalletTransactions,
   adminUpdateWalletTransaction,
 };
