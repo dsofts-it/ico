@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
 const OTP_TTL_MINUTES = 10;
+const MOBILE_ALIAS_DOMAIN = process.env.MOBILE_ALIAS_DOMAIN || 'mobile.local';
 
 const normalizeChannel = (channel = '') => {
   if (!channel) {
@@ -33,6 +34,12 @@ const parseIdentifier = (identifier = '') => {
     return { type: 'email', value: trimmed.toLowerCase() };
   }
   return { type: 'mobile', value: trimmed };
+};
+
+const buildMobileAliasEmail = (mobile) => {
+  const cleaned = String(mobile || '').trim();
+  if (!cleaned) return undefined;
+  return `${cleaned}@${MOBILE_ALIAS_DOMAIN}`;
 };
 
 // @desc    Combined signup (email + mobile) with OTP to both
@@ -222,6 +229,7 @@ const signupMobileInit = async (req, res) => {
   try {
     const existingUser = await User.findOne({ mobile: normalizedMobile });
     const otpPayload = buildOTP('mobile');
+    const aliasEmail = buildMobileAliasEmail(normalizedMobile);
 
     if (existingUser) {
       if (existingUser.isMobileVerified) {
@@ -230,6 +238,10 @@ const signupMobileInit = async (req, res) => {
 
       existingUser.name = name || existingUser.name;
       existingUser.mobile = normalizedMobile;
+      // Ensure a non-null, unique email placeholder for uniqueness indexes
+      if (!existingUser.email && aliasEmail) {
+        existingUser.email = aliasEmail;
+      }
       existingUser.otp = otpPayload;
 
       const ensuredCode = await ensureReferralCode(existingUser);
@@ -254,6 +266,7 @@ const signupMobileInit = async (req, res) => {
     const user = await User.create({
       name,
       mobile: normalizedMobile,
+      email: aliasEmail,
       otp: otpPayload,
     });
 
@@ -321,6 +334,13 @@ const verifyOTP = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       user.pin = await bcrypt.hash(pinString, salt);
       pinSet = true;
+    }
+
+    if (!user.email && user.mobile) {
+      const aliasEmail = buildMobileAliasEmail(user.mobile);
+      if (aliasEmail) {
+        user.email = aliasEmail;
+      }
     }
 
     await ensureReferralCode(user);
