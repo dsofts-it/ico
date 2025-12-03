@@ -4,6 +4,7 @@ const IcoHolding = require('../models/IcoHolding');
 const WalletTransaction = require('../models/WalletTransaction');
 const WalletAccount = require('../models/WalletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
+const { verifySignature: verifyRazorpaySignature } = require('../utils/razorpay');
 
 const PHONEPE_SUCCESS_CODES = ['PAYMENT_SUCCESS', 'SUCCESS'];
 
@@ -103,6 +104,52 @@ const handlePhonePeCallback = async (req, res) => {
   }
 };
 
+const handleRazorpayVerify = async (req, res) => {
+  try {
+    const { orderId, paymentId, signature, transactionId } = req.body || {};
+    if (!orderId || !paymentId || !signature) {
+      return res.status(400).json({ message: 'orderId, paymentId and signature are required' });
+    }
+
+    const valid = verifyRazorpaySignature({ orderId, paymentId, signature });
+    if (!valid) {
+      return res.status(400).json({ message: 'Invalid signature' });
+    }
+
+    const transaction = await IcoTransaction.findOne(
+      transactionId ? { _id: transactionId } : { paymentReference: orderId },
+    );
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    transaction.status = 'completed';
+    transaction.paymentReference = orderId;
+    transaction.phonePeTransactionId = paymentId; // reuse field for tracking
+    await transaction.save();
+
+    if (transaction.type === 'buy') {
+      const holding = await IcoHolding.findOneAndUpdate(
+        { user: transaction.user },
+        { $inc: { balance: transaction.tokenAmount } },
+        { new: true, upsert: true },
+      );
+      await distributeReferralCommission({
+        buyerId: transaction.user,
+        amount: transaction.fiatAmount,
+        sourceType: 'ico',
+        sourceId: transaction._id.toString(),
+      });
+      return res.json({ status: 'success', transactionId: transaction._id, holding });
+    }
+
+    res.json({ status: 'success', transactionId: transaction._id });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   handlePhonePeCallback,
+  handleRazorpayVerify,
 };

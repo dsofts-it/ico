@@ -4,6 +4,7 @@ const WalletTransaction = require('../models/WalletTransaction');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
+const { createOrder: createRazorpayOrder, RAZORPAY_KEY_ID } = require('../utils/razorpay');
 
 const getTokenPrice = () => {
   const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
@@ -71,7 +72,9 @@ const initiateIcoBuy = async (req, res) => {
     return res.status(400).json({ message: 'Invalid purchase amount' });
   }
 
-  const payWithWallet = useWallet === true || (paymentMethod || '').toLowerCase() === 'wallet';
+  const method = (paymentMethod || '').toLowerCase();
+  const payWithWallet = useWallet === true || method === 'wallet';
+  const payWithRazorpay = method === 'razorpay';
 
   try {
     if (payWithWallet) {
@@ -140,6 +143,44 @@ const initiateIcoBuy = async (req, res) => {
         },
         referral: {
           credited: true,
+        },
+      });
+    }
+
+    if (payWithRazorpay) {
+      const transaction = await IcoTransaction.create({
+        user: req.user._id,
+        type: 'buy',
+        tokenAmount: tokens,
+        pricePerToken: price,
+        fiatAmount: amount,
+        status: 'initiated',
+      });
+
+      const order = await createRazorpayOrder({
+        amount,
+        currency: 'INR',
+        receipt: transaction._id.toString(),
+        notes: {
+          userId: req.user._id.toString(),
+          tokenAmount: tokens,
+          tokenSymbol,
+        },
+      });
+
+      transaction.paymentReference = order.id || transaction._id.toString();
+      await transaction.save();
+
+      return res.status(201).json({
+        transaction,
+        paymentGateway: 'razorpay',
+        razorpay: {
+          orderId: order.id,
+          amount: order.amount,
+          currency: order.currency,
+          keyId: RAZORPAY_KEY_ID,
+          notes: order.notes,
+          mock: order.mock || false,
         },
       });
     }
