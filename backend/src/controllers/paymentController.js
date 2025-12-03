@@ -116,34 +116,65 @@ const handleRazorpayVerify = async (req, res) => {
       return res.status(400).json({ message: 'Invalid signature' });
     }
 
-    const transaction = await IcoTransaction.findOne(
+    // First try ICO transaction
+    let transaction = await IcoTransaction.findOne(
       transactionId ? { _id: transactionId } : { paymentReference: orderId },
     );
-    if (!transaction) {
+    if (transaction) {
+      transaction.status = 'completed';
+      transaction.paymentReference = orderId;
+      transaction.phonePeTransactionId = paymentId; // reuse field for tracking
+      await transaction.save();
+
+      if (transaction.type === 'buy') {
+        const holding = await IcoHolding.findOneAndUpdate(
+          { user: transaction.user },
+          { $inc: { balance: transaction.tokenAmount } },
+          { new: true, upsert: true },
+        );
+        await distributeReferralCommission({
+          buyerId: transaction.user,
+          amount: transaction.fiatAmount,
+          sourceType: 'ico',
+          sourceId: transaction._id.toString(),
+        });
+        return res.json({ status: 'success', transactionId: transaction._id, holding, kind: 'ico' });
+      }
+
+      return res.json({ status: 'success', transactionId: transaction._id, kind: 'ico' });
+    }
+
+    // Then try Wallet topup transaction
+    const walletTx = await WalletTransaction.findOne(
+      transactionId ? { _id: transactionId } : { merchantTransactionId: orderId },
+    );
+    if (!walletTx) {
       return res.status(404).json({ message: 'Transaction not found' });
     }
 
-    transaction.status = 'completed';
-    transaction.paymentReference = orderId;
-    transaction.phonePeTransactionId = paymentId; // reuse field for tracking
-    await transaction.save();
+    walletTx.status = 'completed';
+    walletTx.razorpayOrderId = orderId;
+    walletTx.razorpayPaymentId = paymentId;
+    walletTx.razorpaySignature = signature;
+    await walletTx.save();
 
-    if (transaction.type === 'buy') {
-      const holding = await IcoHolding.findOneAndUpdate(
-        { user: transaction.user },
-        { $inc: { balance: transaction.tokenAmount } },
-        { new: true, upsert: true },
+    if (walletTx.type === 'credit' && walletTx.category === 'topup') {
+      const walletQuery = walletTx.wallet ? { _id: walletTx.wallet } : { user: walletTx.user };
+      const wallet = await WalletAccount.findOneAndUpdate(
+        walletQuery,
+        {
+          $inc: {
+            balance: walletTx.amount,
+            totalCredited: walletTx.amount,
+          },
+          $setOnInsert: { user: walletTx.user },
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true },
       );
-      await distributeReferralCommission({
-        buyerId: transaction.user,
-        amount: transaction.fiatAmount,
-        sourceType: 'ico',
-        sourceId: transaction._id.toString(),
-      });
-      return res.json({ status: 'success', transactionId: transaction._id, holding });
+      return res.json({ status: 'success', transactionId: walletTx._id, wallet, kind: 'wallet' });
     }
 
-    res.json({ status: 'success', transactionId: transaction._id });
+    res.json({ status: 'success', transactionId: walletTx._id, kind: 'wallet' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

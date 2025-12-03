@@ -198,6 +198,20 @@
           }
         },
         {
+          "name": "Wallet Topup (Razorpay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/wallet/topup", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "topup"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": {{topupAmount}},\n  \"paymentMethod\": \"razorpay\"\n}"
+            }
+          }
+        },
+        {
           "name": "Wallet Transactions",
           "request": {
             "method": "GET",
@@ -285,6 +299,34 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"tokenAmount\": {{tokenAmount}},\n  \"useWallet\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Buy Token (Razorpay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/ico/buy", "host": ["{{baseUrl}}"], "path": ["api", "ico", "buy"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tokenAmount\": {{tokenAmount}},\n  \"paymentMethod\": \"razorpay\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Verify Razorpay Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/payments/razorpay/verify", "host": ["{{baseUrl}}"], "path": ["api", "payments", "razorpay", "verify"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{razorpayOrderId}}\",\n  \"paymentId\": \"{{razorpayPaymentId}}\",\n  \"signature\": \"{{razorpaySignature}}\",\n  \"transactionId\": \"{{transactionId}}\"\n}"
             }
           }
         },

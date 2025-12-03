@@ -4,6 +4,7 @@ const WalletTransaction = require('../models/WalletTransaction');
 const User = require('../models/User');
 const IcoHolding = require('../models/IcoHolding');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
+const { createOrder: createRazorpayOrder, RAZORPAY_KEY_ID } = require('../utils/razorpay');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
 const CALLBACK_URL = process.env.PHONEPE_CALLBACK_URL || 'https://your-domain.com/api/payments/phonepe/callback';
@@ -149,6 +150,8 @@ const initiateWalletTopup = async (req, res) => {
     }
 
     const wallet = await getOrCreateWalletAccount(req.user._id);
+    const method = (req.body.paymentMethod || '').toLowerCase();
+    const useRazorpay = method === 'razorpay';
 
     const transaction = await WalletTransaction.create({
       user: req.user._id,
@@ -159,12 +162,46 @@ const initiateWalletTopup = async (req, res) => {
       currency: wallet.currency,
       status: 'initiated',
       description: req.body.note?.trim() || `Wallet top-up of INR ${amount}`,
-      paymentGateway: 'phonepe',
+      paymentGateway: useRazorpay ? 'razorpay' : 'phonepe',
       metadata: {
         note: req.body.note?.trim(),
         paymentInstrument: req.body.paymentInstrument,
       },
     });
+
+    if (useRazorpay) {
+      const order = await createRazorpayOrder({
+        amount,
+        currency: wallet.currency || 'INR',
+        receipt: transaction._id.toString(),
+        notes: {
+          userId: req.user._id.toString(),
+          category: 'wallet_topup',
+        },
+      });
+
+      transaction.merchantTransactionId = order.id || transaction._id.toString();
+      transaction.razorpayOrderId = order.id;
+      await transaction.save();
+
+      return res.status(201).json({
+        wallet: {
+          balance: wallet.balance,
+          currency: wallet.currency,
+          pendingWithdrawals: wallet.pendingWithdrawals,
+        },
+        transaction: sanitizeTransaction(transaction),
+        paymentGateway: 'razorpay',
+        razorpay: {
+          orderId: order.id,
+          amount: order.amount,
+          currency: order.currency,
+          keyId: RAZORPAY_KEY_ID,
+          notes: order.notes,
+          mock: order.mock || false,
+        },
+      });
+    }
 
     const session = createPhonePePaymentPayload({
       amount,
