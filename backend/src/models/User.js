@@ -136,6 +136,20 @@ const userSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Ensure unique constraints only apply when values exist
+userSchema.index(
+  { email: 1 },
+  { unique: true, sparse: true, partialFilterExpression: { email: { $exists: true, $ne: null } } },
+);
+userSchema.index(
+  { mobile: 1 },
+  { unique: true, sparse: true, partialFilterExpression: { mobile: { $exists: true, $ne: null } } },
+);
+userSchema.index(
+  { referralCode: 1 },
+  { unique: true, sparse: true, partialFilterExpression: { referralCode: { $exists: true, $ne: null } } },
+);
+
 // Match Password
 userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
