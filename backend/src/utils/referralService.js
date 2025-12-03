@@ -4,6 +4,7 @@ const ReferralEarning = require('../models/ReferralEarning');
 const REFERRAL_PERCENTAGES = [5, 15, 10, 8, 5, 3, 2, 1, 1];
 const PROMOTION_THRESHOLD = 8;
 const MAX_LEVELS = REFERRAL_PERCENTAGES.length;
+const REFERRAL_FALLBACK_CODE = (process.env.REFERRAL_FALLBACK_CODE || '').trim().toUpperCase();
 
 const normalizeReferralCode = (code = '') => code.trim().toUpperCase();
 
@@ -72,6 +73,11 @@ const applyReferralCodeOnSignup = async (user, referralCode) => {
   await ensureReferralCode(user);
 
   if (!code || user.referredBy) {
+    return user;
+  }
+
+  // Allow a configured fallback code (for the very first/seed user)
+  if (REFERRAL_FALLBACK_CODE && code === REFERRAL_FALLBACK_CODE) {
     return user;
   }
 
