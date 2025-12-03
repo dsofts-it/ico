@@ -37,6 +37,4 @@ const walletAccountSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-walletAccountSchema.index({ user: 1 }, { unique: true });
-
 module.exports = mongoose.model('WalletAccount', walletAccountSchema);
