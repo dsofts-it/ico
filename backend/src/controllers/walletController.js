@@ -4,15 +4,30 @@ const WalletTransaction = require('../models/WalletTransaction');
 const User = require('../models/User');
 const IcoHolding = require('../models/IcoHolding');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
-const { createOrder: createRazorpayOrder, RAZORPAY_KEY_ID } = require('../utils/razorpay');
+const {
+  createOrder: createRazorpayOrder,
+  RAZORPAY_KEY_ID,
+} = require('../utils/razorpay');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
-const CALLBACK_URL = process.env.PHONEPE_CALLBACK_URL || 'https://your-domain.com/api/payments/phonepe/callback';
+const CALLBACK_URL =
+  process.env.PHONEPE_CALLBACK_URL ||
+  'https://your-domain.com/api/payments/phonepe/callback';
 const MIN_TOPUP_AMOUNT = Number(process.env.WALLET_MIN_TOPUP_AMOUNT || 10);
 const MAX_TOPUP_AMOUNT = Number(process.env.WALLET_MAX_TOPUP_AMOUNT || 200000);
-const MIN_WITHDRAW_AMOUNT = Number(process.env.WALLET_MIN_WITHDRAW_AMOUNT || 100);
-const MIN_REFERRAL_REDEEM = Number(process.env.WALLET_MIN_REFERRAL_REDEEM || 10);
-const WALLET_TRANSACTION_STATUSES = ['initiated', 'pending', 'completed', 'failed', 'cancelled'];
+const MIN_WITHDRAW_AMOUNT = Number(
+  process.env.WALLET_MIN_WITHDRAW_AMOUNT || 100,
+);
+const MIN_REFERRAL_REDEEM = Number(
+  process.env.WALLET_MIN_REFERRAL_REDEEM || 10,
+);
+const WALLET_TRANSACTION_STATUSES = [
+  'initiated',
+  'pending',
+  'completed',
+  'failed',
+  'cancelled',
+];
 
 const sanitizeTransaction = (transaction) => {
   if (!transaction) {
@@ -26,7 +41,9 @@ const sanitizeTransaction = (transaction) => {
 
 const getTokenMeta = () => {
   const tokenSymbol = process.env.ICO_TOKEN_SYMBOL || 'ICOX';
-  const rawPrice = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
+  const rawPrice = Number(
+    process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10,
+  );
   const tokenPrice = Number.isNaN(rawPrice) || rawPrice <= 0 ? 10 : rawPrice;
   return { tokenSymbol, tokenPrice };
 };
@@ -37,7 +54,11 @@ const getWalletSummary = async (req, res) => {
     const userPromise = User.findById(req.user._id);
     const holdingPromise = IcoHolding.findOne({ user: req.user._id });
 
-    const [wallet, user, holding] = await Promise.all([walletPromise, userPromise, holdingPromise]);
+    const [wallet, user, holding] = await Promise.all([
+      walletPromise,
+      userPromise,
+      holdingPromise,
+    ]);
     const userObjectId = new mongoose.Types.ObjectId(req.user._id);
     const { tokenPrice, tokenSymbol } = getTokenMeta();
 
@@ -58,7 +79,9 @@ const getWalletSummary = async (req, res) => {
       },
     ]);
 
-    const recentTransactions = await WalletTransaction.find({ user: req.user._id })
+    const recentTransactions = await WalletTransaction.find({
+      user: req.user._id,
+    })
       .sort({ createdAt: -1 })
       .limit(5);
 
@@ -71,12 +94,14 @@ const getWalletSummary = async (req, res) => {
         totalDebited: wallet.totalDebited,
         updatedAt: wallet.updatedAt,
       },
-      referral: user ? {
-        balance: user.referralWalletBalance || 0,
-        totalEarned: user.referralTotalEarned || 0,
-        code: user.referralCode,
-        level: user.referralLevel || 0,
-      } : undefined,
+      referral: user
+        ? {
+            balance: user.referralWalletBalance || 0,
+            totalEarned: user.referralTotalEarned || 0,
+            code: user.referralCode,
+            level: user.referralLevel || 0,
+          }
+        : undefined,
       tokenWallet: {
         balance: holding?.balance || 0,
         tokenSymbol,
@@ -142,11 +167,15 @@ const initiateWalletTopup = async (req, res) => {
     }
 
     if (amount < MIN_TOPUP_AMOUNT) {
-      return res.status(400).json({ message: `Minimum top-up amount is INR ${MIN_TOPUP_AMOUNT}` });
+      return res
+        .status(400)
+        .json({ message: `Minimum top-up amount is INR ${MIN_TOPUP_AMOUNT}` });
     }
 
     if (amount > MAX_TOPUP_AMOUNT) {
-      return res.status(400).json({ message: `Maximum top-up amount is INR ${MAX_TOPUP_AMOUNT}` });
+      return res
+        .status(400)
+        .json({ message: `Maximum top-up amount is INR ${MAX_TOPUP_AMOUNT}` });
     }
 
     const wallet = await getOrCreateWalletAccount(req.user._id);
@@ -180,7 +209,8 @@ const initiateWalletTopup = async (req, res) => {
         },
       });
 
-      transaction.merchantTransactionId = order.id || transaction._id.toString();
+      transaction.merchantTransactionId =
+        order.id || transaction._id.toString();
       transaction.razorpayOrderId = order.id;
       await transaction.save();
 
@@ -212,7 +242,8 @@ const initiateWalletTopup = async (req, res) => {
       paymentInstrument: req.body.paymentInstrument,
     });
 
-    transaction.merchantTransactionId = session.payload?.merchantTransactionId || transaction._id.toString();
+    transaction.merchantTransactionId =
+      session.payload?.merchantTransactionId || transaction._id.toString();
     transaction.phonePePayload = {
       endpoint: session.endpoint,
       payload: session.payload,
@@ -249,7 +280,9 @@ const requestWalletWithdrawal = async (req, res) => {
     }
 
     if (amount < MIN_WITHDRAW_AMOUNT) {
-      return res.status(400).json({ message: `Minimum withdrawal amount is INR ${MIN_WITHDRAW_AMOUNT}` });
+      return res.status(400).json({
+        message: `Minimum withdrawal amount is INR ${MIN_WITHDRAW_AMOUNT}`,
+      });
     }
 
     const wallet = await getOrCreateWalletAccount(req.user._id);
@@ -269,7 +302,8 @@ const requestWalletWithdrawal = async (req, res) => {
       amount,
       currency: wallet.currency,
       status: 'pending',
-      description: req.body.note?.trim() || `Withdrawal request of INR ${amount}`,
+      description:
+        req.body.note?.trim() || `Withdrawal request of INR ${amount}`,
       metadata: {
         payoutMethod: req.body.payoutMethod || 'manual',
         payoutDetails: req.body.payoutDetails,
@@ -298,7 +332,9 @@ const redeemReferralEarnings = async (req, res) => {
     }
 
     if (amount < MIN_REFERRAL_REDEEM) {
-      return res.status(400).json({ message: `Minimum referral redemption is INR ${MIN_REFERRAL_REDEEM}` });
+      return res.status(400).json({
+        message: `Minimum referral redemption is INR ${MIN_REFERRAL_REDEEM}`,
+      });
     }
 
     const user = await User.findById(req.user._id);
@@ -418,12 +454,21 @@ const adminUpdateWalletTransaction = async (req, res) => {
         wallet = await getOrCreateWalletAccount(transaction.user);
 
         if (previousStatus === 'pending' && status === 'completed') {
-          wallet.pendingWithdrawals = Math.max(0, wallet.pendingWithdrawals - transaction.amount);
+          wallet.pendingWithdrawals = Math.max(
+            0,
+            wallet.pendingWithdrawals - transaction.amount,
+          );
           wallet.totalDebited += transaction.amount;
           await wallet.save();
-        } else if (previousStatus === 'pending' && ['failed', 'cancelled'].includes(status)) {
+        } else if (
+          previousStatus === 'pending' &&
+          ['failed', 'cancelled'].includes(status)
+        ) {
           wallet.balance += transaction.amount;
-          wallet.pendingWithdrawals = Math.max(0, wallet.pendingWithdrawals - transaction.amount);
+          wallet.pendingWithdrawals = Math.max(
+            0,
+            wallet.pendingWithdrawals - transaction.amount,
+          );
           await wallet.save();
         }
       }
@@ -437,11 +482,13 @@ const adminUpdateWalletTransaction = async (req, res) => {
 
     res.json({
       transaction: sanitizeTransaction(transaction),
-      wallet: wallet ? {
-        balance: wallet.balance,
-        pendingWithdrawals: wallet.pendingWithdrawals,
-        totalDebited: wallet.totalDebited,
-      } : undefined,
+      wallet: wallet
+        ? {
+            balance: wallet.balance,
+            pendingWithdrawals: wallet.pendingWithdrawals,
+            totalDebited: wallet.totalDebited,
+          }
+        : undefined,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

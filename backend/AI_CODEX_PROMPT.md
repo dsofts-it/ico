@@ -58,12 +58,14 @@ lib/
 │   ├── app_config.dart          # API URLs, constants
 │   ├── theme.dart               # App theme configuration
 │   └── routes.dart              # Named routes
+
 ├── models/
 │   ├── user_model.dart
 │   ├── transaction_model.dart
 │   ├── address_model.dart
 │   ├── ico_summary_model.dart
 │   └── payment_session_model.dart
+
 ├── services/
 │   ├── api_service.dart         # Base HTTP service
 │   ├── auth_service.dart        # Authentication APIs
@@ -71,10 +73,12 @@ lib/
 │   ├── user_service.dart        # Profile & Address APIs
 │   ├── storage_service.dart     # Secure storage
 │   └── payment_service.dart     # PhonePe integration
+
 ├── providers/
 │   ├── auth_provider.dart
 │   ├── wallet_provider.dart
 │   └── user_provider.dart
+
 ├── screens/
 │   ├── splash_screen.dart
 │   ├── auth/
@@ -83,17 +87,21 @@ lib/
 │   │   ├── pin_setup_screen.dart
 │   │   ├── login_screen.dart
 │   │   └── pin_login_screen.dart
+
 │   ├── home/
 │   │   └── home_screen.dart
+
 │   ├── wallet/
 │   │   ├── wallet_screen.dart
 │   │   ├── add_money_screen.dart
 │   │   ├── transaction_history_screen.dart
 │   │   └── payment_webview_screen.dart
+
 │   ├── ico/
 │   │   ├── ico_dashboard_screen.dart
 │   │   ├── buy_tokens_screen.dart
 │   │   └── sell_tokens_screen.dart
+
 │   └── profile/
 │       ├── profile_screen.dart
 │       ├── edit_profile_screen.dart

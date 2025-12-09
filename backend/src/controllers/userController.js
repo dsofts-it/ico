@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const ReferralEarning = require('../models/ReferralEarning');
+const { ensureReferralCode } = require('../utils/referralService');
 
 const REQUIRED_FIELDS = ['line1', 'city', 'state', 'postalCode'];
 const ADDRESS_FIELDS = [
@@ -209,7 +210,9 @@ const setDefaultAddress = async (req, res) => {
   }
 };
 
-const getReferralSummary = async (req, res) => {
+const 
+
+getReferralSummary = async (req, res) => {
   try {
     const user = await ensureUserExists(req.user._id);
     res.json({
@@ -237,6 +240,20 @@ const listReferralEarnings = async (req, res) => {
   }
 };
 
+const getReferralCode = async (req, res) => {
+  try {
+    const user = await ensureUserExists(req.user._id);
+    const created = await ensureReferralCode(user);
+    if (created) {
+      await user.save();
+    }
+    res.json({ referralCode: user.referralCode });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAddresses,
   addAddress,
@@ -245,4 +262,5 @@ module.exports = {
   setDefaultAddress,
   getReferralSummary,
   listReferralEarnings,
+  getReferralCode,
 };
