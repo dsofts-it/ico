@@ -91,11 +91,11 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0,
-    max: 8,
+    max: 7,
   },
   referralDownlineCounts: {
     type: [Number],
-    default: () => Array(9).fill(0), // depth 0-8
+    default: () => Array(8).fill(0), // depth 0-7
   },
   referralWalletBalance: {
     type: Number,

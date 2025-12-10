@@ -41,6 +41,7 @@ const calculateTotals = (cart, shipping = 0, taxes = 0) => {
   };
 };
 
+
 const createOrder = async (req, res) => {
   const { shippingAddress, billingAddress, paymentMethod = 'phonepe', shippingFee = 0, taxes = 0 } = req.body;
 
@@ -105,6 +106,8 @@ const createOrder = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
 
 const getOrders = async (req, res) => {
   try {

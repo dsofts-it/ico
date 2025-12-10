@@ -1,7 +1,9 @@
 const User = require('../models/User');
 const ReferralEarning = require('../models/ReferralEarning');
 
-const REFERRAL_PERCENTAGES = [5, 15, 10, 8, 5, 3, 2, 1, 1];
+// 8-level plan: depth 0 starts at 15%, then steps down as the network deepens.
+// To unlock each next depth, a member needs 8 active referrals at the previous depth.
+const REFERRAL_PERCENTAGES = [15, 10, 8, 6, 5, 3, 2, 1];
 const PROMOTION_THRESHOLD = 8;
 const MAX_LEVELS = REFERRAL_PERCENTAGES.length;
 const REFERRAL_FALLBACK_CODE = (process.env.REFERRAL_FALLBACK_CODE || '').trim().toUpperCase();
@@ -9,7 +11,7 @@ const REFERRAL_FALLBACK_CODE = (process.env.REFERRAL_FALLBACK_CODE || '').trim()
 const normalizeReferralCode = (code = '') => code.trim().toUpperCase();
 
 const ensureDownlineArray = (arr = []) => {
-  const counts = [...arr];
+  const counts = [...arr].slice(0, MAX_LEVELS);
   while (counts.length < MAX_LEVELS) {
     counts.push(0);
   }
