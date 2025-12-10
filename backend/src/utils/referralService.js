@@ -1,11 +1,22 @@
 const User = require('../models/User');
 const ReferralEarning = require('../models/ReferralEarning');
+const IcoTransaction = require('../models/IcoTransaction');
 
-// 8-level plan: depth 0 starts at 15%, then steps down as the network deepens.
-// To unlock each next depth, a member needs 8 active referrals at the previous depth.
-const REFERRAL_PERCENTAGES = [15, 10, 8, 6, 5, 3, 2, 1];
+// Infinity 8 plan:
+// - Depth 0 (always available): 5%
+// - Depth 1: 15% (unlocks after 8 directs)
+// - Depth 2: 10%
+// - Depth 3: 8%
+// - Depth 4: 5%
+// - Depth 5: 3%
+// - Depth 6: 2%
+// - Depth 7: 1%
+// - Depth 8: 1%
+const REFERRAL_PERCENTAGES = [5, 15, 10, 8, 5, 3, 2, 1, 1];
 const PROMOTION_THRESHOLD = 8;
 const MAX_LEVELS = REFERRAL_PERCENTAGES.length;
+const MONTHLY_TOKEN_REQUIREMENT = Number(process.env.REFERRAL_MIN_MONTHLY_TOKENS || 100);
+const ACTIVE_WINDOW_DAYS = Number(process.env.REFERRAL_ACTIVE_WINDOW_DAYS || 30);
 const REFERRAL_FALLBACK_CODE = (process.env.REFERRAL_FALLBACK_CODE || '').trim().toUpperCase();
 
 const normalizeReferralCode = (code = '') => code.trim().toUpperCase();
@@ -70,6 +81,31 @@ const incrementDownlineCounts = async (ancestorIds = []) => {
   }
 };
 
+const isUserActiveForReferral = async (userId) => {
+  if (!MONTHLY_TOKEN_REQUIREMENT || MONTHLY_TOKEN_REQUIREMENT <= 0) {
+    return true;
+  }
+  const windowStart = new Date(Date.now() - ACTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const [agg] = await IcoTransaction.aggregate([
+    {
+      $match: {
+        user: userId,
+        status: 'completed',
+        type: 'buy',
+        createdAt: { $gte: windowStart },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        tokens: { $sum: '$tokenAmount' },
+      },
+    },
+  ]);
+  const tokens = agg?.tokens || 0;
+  return tokens >= MONTHLY_TOKEN_REQUIREMENT;
+};
+
 const applyReferralCodeOnSignup = async (user, referralCode) => {
   const code = normalizeReferralCode(referralCode);
   await ensureReferralCode(user);
@@ -131,6 +167,11 @@ const distributeReferralCommission = async ({ buyerId, amount, sourceType, sourc
     const qualifies = (ancestor.referralLevel || 0) >= depth;
     if (!qualifies) continue;
 
+    // Ensure the ancestor is active by meeting the monthly token purchase requirement
+    // eslint-disable-next-line no-await-in-loop
+    const active = await isUserActiveForReferral(ancestor._id);
+    if (!active) continue;
+
     // Prevent duplicates when callbacks retry
     // eslint-disable-next-line no-await-in-loop
     const exists = await ReferralEarning.findOne({
@@ -163,6 +204,7 @@ module.exports = {
   REFERRAL_PERCENTAGES,
   normalizeReferralCode,
   ensureReferralCode,
+  isUserActiveForReferral,
   applyReferralCodeOnSignup,
   distributeReferralCommission,
 };

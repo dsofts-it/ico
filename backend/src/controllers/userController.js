@@ -254,6 +254,46 @@ const getReferralCode = async (req, res) => {
   }
 };
 
+// List downline users at a given depth (0 = direct referrals, 1 = second level, etc.)
+const listReferralDownline = async (req, res) => {
+  try {
+    const depth = Number(req.query.depth ?? 0);
+    if (Number.isNaN(depth) || depth < 0 || depth > 8) {
+      return res.status(400).json({ message: 'depth must be between 0 and 8' });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const pathField = `referralPath.${depth}`;
+    const filter = { [pathField]: req.user._id };
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('name email mobile referralCode referralLevel referralWalletBalance referralTotalEarned referredBy createdAt'),
+      User.countDocuments(filter),
+    ]);
+
+    res.json({
+      depth,
+      users,
+      pagination: {
+        total,
+        page,
+        limit,
+        hasMore: skip + users.length < total,
+      },
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAddresses,
   addAddress,
@@ -263,4 +303,5 @@ module.exports = {
   getReferralSummary,
   listReferralEarnings,
   getReferralCode,
+  listReferralDownline,
 };
