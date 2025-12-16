@@ -65,5 +65,6 @@ app.use('/api/ico', require('./routes/icoRoutes'));
 app.use('/api/user', require('./routes/userRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
+app.use('/api/kyc', require('./routes/kycRoutes'));
 
 module.exports = app;

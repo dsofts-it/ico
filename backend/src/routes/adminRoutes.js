@@ -10,9 +10,30 @@ const {
   updateProduct,
   deleteProduct,
 } = require('../controllers/adminController');
+const {
+  listUsers,
+  getUserDetail,
+  listKycApplications,
+  getAdminStats,
+  listIcoTransactions,
+  listReferralEarningsAdmin,
+} = require('../controllers/adminUserController');
+const { adminReviewKyc, getKycDetailAdmin } = require('../controllers/kycController');
 const { protect, requireAdmin } = require('../middleware/authMiddleware');
 
 router.use(protect, requireAdmin);
+
+// Admin overview
+router.get('/stats', getAdminStats);
+
+// Users & KYC
+router.get('/users', listUsers);
+router.get('/users/:id', getUserDetail);
+router.get('/kyc', listKycApplications);
+router.get('/kyc/:kycId', getKycDetailAdmin);
+router.patch('/kyc/:kycId/status', adminReviewKyc);
+router.get('/ico/transactions', listIcoTransactions);
+router.get('/referrals/earnings', listReferralEarningsAdmin);
 
 router.get('/categories', listCategories);
 router.post('/categories', createCategory);

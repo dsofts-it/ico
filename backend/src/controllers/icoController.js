@@ -1,6 +1,7 @@
 const IcoHolding = require('../models/IcoHolding');
 const IcoTransaction = require('../models/IcoTransaction');
 const WalletTransaction = require('../models/WalletTransaction');
+const KycApplication = require('../models/KycApplication');
 const { createPhonePePaymentPayload } = require('../utils/phonePe');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
@@ -36,11 +37,13 @@ const getIcoSummary = async (req, res) => {
   try {
     const holding = await getHolding(req.user._id);
     const price = getTokenPrice();
+    const kyc = await KycApplication.findOne({ user: req.user._id }).select('status');
     res.json({
       tokenSymbol: getTokenSymbol(),
       price,
       balance: holding.balance,
       valuation: holding.balance * price,
+      kycStatus: kyc ? kyc.status : 'not_submitted',
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -77,6 +80,11 @@ const initiateIcoBuy = async (req, res) => {
   const payWithRazorpay = method === 'razorpay';
 
   try {
+    const kyc = await KycApplication.findOne({ user: req.user._id });
+    if (!kyc || kyc.status !== 'verified') {
+      return res.status(403).json({ message: 'KYC verification required before buying tokens' });
+    }
+
     if (payWithWallet) {
       const wallet = await getOrCreateWalletAccount(req.user._id);
       if (wallet.balance < amount) {
