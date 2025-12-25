@@ -69,10 +69,30 @@ const userSchema = new mongoose.Schema({
   pin: {
     type: String,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  activatedAt: {
+    type: Date,
+  },
+  disabledAt: {
+    type: Date,
+  },
+  disabledReason: {
+    type: String,
+    trim: true,
+  },
   role: {
     type: String,
     enum: ['user', 'admin'],
     default: 'user',
+  },
+  country: {
+    type: String,
+    default: 'IN',
+    uppercase: true,
+    trim: true,
   },
   referralCode: {
     type: String,
@@ -105,6 +125,34 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  rewardsWalletBalance: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  pendingEmail: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
+  pendingEmailRequestedAt: {
+    type: Date,
+  },
+  bankDetails: {
+    accountHolderName: { type: String, trim: true },
+    accountNumber: { type: String, trim: true },
+    ifsc: { type: String, trim: true, uppercase: true },
+    bankName: { type: String, trim: true },
+    verified: { type: Boolean, default: false },
+    addedAt: { type: Date },
+    addedBy: { type: String, enum: ['user', 'admin'], default: 'user' },
+  },
+  upiDetails: {
+    upiId: { type: String, trim: true, lowercase: true },
+    verified: { type: Boolean, default: false },
+    addedAt: { type: Date },
+    addedBy: { type: String, enum: ['user', 'admin'], default: 'user' },
+  },
   addresses: [addressSchema],
   isEmailVerified: {
     type: Boolean,
@@ -124,6 +172,10 @@ const userSchema = new mongoose.Schema({
     channel: {
       type: String,
       enum: ['email', 'mobile'],
+    },
+    purpose: {
+      type: String,
+      trim: true,
     },
   },
 }, {

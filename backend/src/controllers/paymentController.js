@@ -5,6 +5,7 @@ const WalletTransaction = require('../models/WalletTransaction');
 const WalletAccount = require('../models/WalletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
 const { verifySignature: verifyRazorpaySignature } = require('../utils/razorpay');
+const { createUserNotification } = require('../utils/notificationService');
 
 const PHONEPE_SUCCESS_CODES = ['PAYMENT_SUCCESS', 'SUCCESS'];
 
@@ -49,24 +50,38 @@ const handlePhonePeCallback = async (req, res) => {
         transaction.phonePeTransactionId = transactionId;
         await transaction.save();
 
-        if (status === 'paid' && transaction.type === 'buy') {
-          const holding = await IcoHolding.findOneAndUpdate(
-            { user: transaction.user },
-            { $inc: { balance: transaction.tokenAmount } },
-            { new: true, upsert: true },
-          );
-          await distributeReferralCommission({
-            buyerId: transaction.user,
-            amount: transaction.fiatAmount,
-            sourceType: 'ico',
-            sourceId: transaction._id.toString(),
-          });
-          handled = true;
-          console.log('ICO holding updated', holding.balance);
-        } else if (status !== 'paid' && transaction.type === 'buy') {
-          console.log('ICO transaction failed');
-        }
+      if (status === 'paid' && transaction.type === 'buy') {
+        const holding = await IcoHolding.findOneAndUpdate(
+          { user: transaction.user },
+          { $inc: { balance: transaction.tokenAmount } },
+          { new: true, upsert: true },
+        );
+        await distributeReferralCommission({
+          buyerId: transaction.user,
+          amount: transaction.fiatAmount,
+          sourceType: 'ico',
+          sourceId: transaction._id.toString(),
+        });
+        await createUserNotification({
+          userId: transaction.user,
+          title: 'Token purchase successful',
+          message: `Purchased ${transaction.tokenAmount} tokens.`,
+          type: 'transaction',
+          metadata: { transactionId: transaction._id },
+        });
+        handled = true;
+        console.log('ICO holding updated', holding.balance);
+      } else if (status !== 'paid' && transaction.type === 'buy') {
+        console.log('ICO transaction failed');
+        await createUserNotification({
+          userId: transaction.user,
+          title: 'Token purchase failed',
+          message: 'Your token purchase failed. Please try again.',
+          type: 'transaction',
+          metadata: { transactionId: transaction._id },
+        });
       }
+    }
     }
 
     if (!handled) {
@@ -95,6 +110,17 @@ const handlePhonePeCallback = async (req, res) => {
             { upsert: true, setDefaultsOnInsert: true },
           );
         }
+
+        await createUserNotification({
+          userId: walletTransaction.user,
+          title: status === 'paid' ? 'Wallet top-up successful' : 'Wallet top-up failed',
+          message:
+            status === 'paid'
+              ? `Wallet credited with INR ${walletTransaction.amount}.`
+              : 'Your wallet top-up failed. Please try again.',
+          type: 'transaction',
+          metadata: { transactionId: walletTransaction._id },
+        });
       }
     }
 
@@ -138,6 +164,13 @@ const handleRazorpayVerify = async (req, res) => {
           sourceType: 'ico',
           sourceId: transaction._id.toString(),
         });
+        await createUserNotification({
+          userId: transaction.user,
+          title: 'Token purchase successful',
+          message: `Purchased ${transaction.tokenAmount} tokens.`,
+          type: 'transaction',
+          metadata: { transactionId: transaction._id },
+        });
         return res.json({ status: 'success', transactionId: transaction._id, holding, kind: 'ico' });
       }
 
@@ -171,6 +204,13 @@ const handleRazorpayVerify = async (req, res) => {
         },
         { new: true, upsert: true, setDefaultsOnInsert: true },
       );
+      await createUserNotification({
+        userId: walletTx.user,
+        title: 'Wallet top-up successful',
+        message: `Wallet credited with INR ${walletTx.amount}.`,
+        type: 'transaction',
+        metadata: { transactionId: walletTx._id },
+      });
       return res.json({ status: 'success', transactionId: walletTx._id, wallet, kind: 'wallet' });
     }
 

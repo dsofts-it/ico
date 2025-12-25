@@ -4,6 +4,7 @@ const {
   deleteFromCloudinary,
   isCloudinaryConfigured,
 } = require('../utils/cloudinary');
+const { createUserNotification } = require('../utils/notificationService');
 
 const REQUIRED_DOC_FIELDS = ['aadhaarFrontUrl', 'aadhaarBackUrl', 'panUrl', 'selfieUrl'];
 const DOC_TYPE_MAP = {
@@ -17,6 +18,7 @@ const baseFolder =
   (process.env.CLOUDINARY_KYC_FOLDER || 'kyc').replace(/^\/+|\/+$/g, '') || 'kyc';
 
 const buildStatusPayload = (kyc) => {
+
   if (!kyc) {
     return { status: 'not_submitted' };
   }
@@ -33,6 +35,7 @@ const buildStatusPayload = (kyc) => {
       selfieUrl: kyc.selfieUrl,
     },
   };
+
 };
 
 const mergeDocuments = (payload, existing) => {
@@ -73,6 +76,7 @@ const uploadKycDocument = async (req, res) => {
       }),
     ]);
 
+
     if (existingKyc && existingKyc[docConfig.publicIdField]) {
       try {
         await deleteFromCloudinary(existingKyc[docConfig.publicIdField]);
@@ -81,16 +85,19 @@ const uploadKycDocument = async (req, res) => {
       }
     }
 
+
     const updates = {
       [docConfig.field]: uploadResult.secure_url,
       [docConfig.publicIdField]: uploadResult.public_id,
     };
+
 
     const kyc = await KycApplication.findOneAndUpdate(
       { user: req.user._id },
       { $set: updates },
       { new: true, upsert: true, setDefaultsOnInsert: true },
     );
+
 
     return res.status(201).json({
       documentType,
@@ -101,10 +108,12 @@ const uploadKycDocument = async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
+
 };
 
 // User submits or resubmits KYC details (uses uploaded Cloudinary URLs if present)
 const submitKyc = async (req, res) => {
+
   try {
     const payload = req.body || {};
     const existing = await KycApplication.findOne({ user: req.user._id });
@@ -168,6 +177,17 @@ const adminReviewKyc = async (req, res) => {
     kyc.verifiedAt = decision === 'verified' ? new Date() : undefined;
     kyc.rejectedAt = decision === 'rejected' ? new Date() : undefined;
     await kyc.save();
+
+    await createUserNotification({
+      userId: kyc.user,
+      title: `KYC ${decision}`,
+      message:
+        decision === 'verified'
+          ? 'Your KYC has been approved.'
+          : `Your KYC was rejected. ${kyc.rejectionReason}`,
+      type: 'kyc',
+      metadata: { kycId: kyc._id, status: kyc.status },
+    });
 
     return res.json(buildStatusPayload(kyc));
   } catch (error) {

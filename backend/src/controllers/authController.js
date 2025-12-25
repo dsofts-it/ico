@@ -20,10 +20,11 @@ const normalizeChannel = (channel = '') => {
   return '';
 };
 
-const buildOTP = (channel) => ({
+const buildOTP = (channel, purpose) => ({
   code: generateOTP(),
   expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
   channel,
+  purpose,
 });
 
 // Normalize identifier to detect email vs mobile
@@ -40,6 +41,14 @@ const buildMobileAliasEmail = (mobile) => {
   const cleaned = String(mobile || '').trim();
   if (!cleaned) return undefined;
   return `${cleaned}@${MOBILE_ALIAS_DOMAIN}`;
+};
+
+const ensureActiveUser = (user, res) => {
+  if (user && user.isActive === false) {
+    res.status(403).json({ message: 'Account is disabled' });
+    return false;
+  }
+  return true;
 };
 
 // @desc    Combined signup (email + mobile) with OTP to both
@@ -68,7 +77,7 @@ const signupCombinedInit = async (req, res) => {
 
     const salt = password ? await bcrypt.genSalt(10) : null;
     const hashedPassword = password && salt ? await bcrypt.hash(password, salt) : undefined;
-    const otpPayload = buildOTP('email'); // stored as email, but OTP is sent to both channels
+    const otpPayload = buildOTP('email', 'signup'); // stored as email, but OTP is sent to both channels
 
     if (existingUser) {
       if (existingUser.isEmailVerified && existingUser.isMobileVerified) {
@@ -151,7 +160,7 @@ const signupEmailInit = async (req, res) => {
     const existingUser = await User.findOne({ email: normalizedEmail });
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    const otpPayload = buildOTP('email');
+    const otpPayload = buildOTP('email', 'signup');
 
     if (existingUser) {
       if (existingUser.isEmailVerified) {
@@ -228,7 +237,7 @@ const signupMobileInit = async (req, res) => {
 
   try {
     const existingUser = await User.findOne({ mobile: normalizedMobile });
-    const otpPayload = buildOTP('mobile');
+    const otpPayload = buildOTP('mobile', 'signup');
     const aliasEmail = buildMobileAliasEmail(normalizedMobile);
 
     if (existingUser) {
@@ -419,6 +428,7 @@ const loginEmail = async (req, res) => {
     if (!user || !user.password) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.isEmailVerified) {
       return res.status(403).json({ message: 'Email not verified' });
@@ -458,12 +468,13 @@ const loginMobileInit = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.isMobileVerified) {
       return res.status(403).json({ message: 'Mobile number is not verified' });
     }
 
-    const otpPayload = buildOTP('mobile');
+    const otpPayload = buildOTP('mobile', 'login');
     user.otp = otpPayload;
 
     await user.save();
@@ -493,6 +504,7 @@ const loginMobileVerify = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.isMobileVerified) {
       return res.status(403).json({ message: 'Mobile number is not verified' });
@@ -547,6 +559,7 @@ const loginMobile = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.isMobileVerified) {
       return res.status(403).json({ message: 'Mobile number is not verified' });
@@ -597,7 +610,7 @@ const loginMobile = async (req, res) => {
       });
     }
 
-    const otpPayload = buildOTP('mobile');
+    const otpPayload = buildOTP('mobile', 'login');
     user.otp = otpPayload;
     await user.save();
     await sendOTP(normalizedMobile, otpPayload.code, 'sms');
@@ -632,6 +645,7 @@ const loginOtpInit = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (type === 'email' && !user.isEmailVerified) {
       return res.status(403).json({ message: 'Email not verified' });
@@ -641,7 +655,7 @@ const loginOtpInit = async (req, res) => {
       return res.status(403).json({ message: 'Mobile number is not verified' });
     }
 
-    const otpPayload = buildOTP(type || 'email');
+    const otpPayload = buildOTP(type || 'email', 'login');
     user.otp = otpPayload;
     await user.save();
 
@@ -673,6 +687,7 @@ const loginOtpVerify = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.otp || !user.otp.code) {
       return res.status(400).json({ message: 'No OTP pending verification' });
@@ -723,6 +738,7 @@ const loginPIN = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (!ensureActiveUser(user, res)) return;
 
     if (!user.pin) {
       return res.status(400).json({ message: 'PIN not set for this user' });

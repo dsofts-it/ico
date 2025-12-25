@@ -18,7 +18,16 @@ const walletTransactionSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['topup', 'purchase', 'withdrawal', 'refund', 'adjustment', 'referral'],
+    enum: [
+      'topup',
+      'purchase',
+      'withdrawal',
+      'refund',
+      'adjustment',
+      'referral',
+      'swap',
+      'staking',
+    ],
     default: 'topup',
   },
   amount: {
@@ -33,7 +42,14 @@ const walletTransactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['initiated', 'pending', 'completed', 'failed', 'cancelled'],
+    enum: [
+      'initiated',
+      'pending',
+      'processed',
+      'completed',
+      'failed',
+      'cancelled',
+    ],
     default: 'initiated',
   },
   description: String,
@@ -55,6 +71,14 @@ const walletTransactionSchema = new mongoose.Schema({
   referenceId: String,
   metadata: mongoose.Schema.Types.Mixed,
   adminNote: String,
+  statusHistory: [
+    {
+      status: { type: String, trim: true },
+      changedAt: { type: Date },
+      changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      note: { type: String, trim: true },
+    },
+  ],
 }, {
   timestamps: true,
 });

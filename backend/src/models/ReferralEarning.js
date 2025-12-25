@@ -44,6 +44,17 @@ const referralEarningSchema = new mongoose.Schema({
     enum: ['pending', 'released', 'reversed'],
     default: 'released',
   },
+  reviewer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  reviewedAt: {
+    type: Date,
+  },
+  adminNote: {
+    type: String,
+    trim: true,
+  },
 }, {
   timestamps: true,
 });

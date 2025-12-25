@@ -6,11 +6,22 @@ const IcoTransaction = require('../models/IcoTransaction');
 const WalletAccount = require('../models/WalletAccount');
 const WalletTransaction = require('../models/WalletTransaction');
 const ReferralEarning = require('../models/ReferralEarning');
+const BankChangeRequest = require('../models/BankChangeRequest');
+const MobileChangeRequest = require('../models/MobileChangeRequest');
+const bcrypt = require('bcryptjs');
+const { buildReferralTree } = require('../utils/referralTree');
+const { createUserNotification } = require('../utils/notificationService');
 
 const getTokenPrice = () => {
   const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
   if (Number.isNaN(price) || price <= 0) return 10;
   return price;
+};
+
+const pruneReferralTree = (node, maxDepth) => {
+  if (!node || !node.children) return;
+  node.children = node.children.filter((child) => child.depth <= maxDepth);
+  node.children.forEach((child) => pruneReferralTree(child, maxDepth));
 };
 
 // Admin: paginated user list with KYC badge
@@ -41,7 +52,7 @@ const listUsers = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select('name email mobile role referralCode referralLevel referralTotalEarned referralWalletBalance isEmailVerified isMobileVerified createdAt'),
+        .select('name email mobile role referralCode referralLevel referralTotalEarned referralWalletBalance isEmailVerified isMobileVerified isActive disabledAt createdAt'),
       User.countDocuments(filter),
     ]);
 
@@ -49,11 +60,9 @@ const listUsers = async (req, res) => {
     const userIds = users.map((u) => u._id);
     let kycQuery = { user: { $in: userIds } };
     
-    if(kycStatus){
+    if (kycStatus) {
       kycQuery.status  = kycStatus;
     }
-
-    o 
 
     const kycs = userIds.length ? await KycApplication.find(kycQuery).select('user status') : [];
     const kycMap = new Map(kycs.map((k) => [k.user.toString(), k.status]));
@@ -122,6 +131,110 @@ const getUserDetail = async (req, res) => {
           }
         : { balance: 0, valuation: 0, tokenSymbol: process.env.ICO_TOKEN_SYMBOL || 'ICOX' },
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateUserStatus = async (req, res) => {
+  try {
+    const { isActive, reason } = req.body || {};
+    if (isActive === undefined) {
+      return res.status(400).json({ message: 'isActive is required' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.isActive = Boolean(isActive);
+    if (user.isActive) {
+      user.activatedAt = new Date();
+      user.disabledAt = undefined;
+      user.disabledReason = undefined;
+    } else {
+      user.disabledAt = new Date();
+      user.disabledReason = reason || 'Disabled by admin';
+    }
+
+    await user.save();
+
+    await createUserNotification({
+      userId: user._id,
+      title: user.isActive ? 'Account activated' : 'Account disabled',
+      message: user.isActive
+        ? 'Your account has been activated by admin.'
+        : `Your account has been disabled. ${user.disabledReason || ''}`.trim(),
+      type: 'admin',
+      metadata: { isActive: user.isActive },
+    });
+    res.json({
+      id: user._id,
+      isActive: user.isActive,
+      disabledAt: user.disabledAt,
+      disabledReason: user.disabledReason,
+      activatedAt: user.activatedAt,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateUserEmail = async (req, res) => {
+  try {
+    const { email, isVerified } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ message: 'email is required' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existing = await User.findOne({
+      email: normalizedEmail,
+      _id: { $ne: req.params.id },
+    });
+    if (existing) {
+      return res.status(400).json({ message: 'Email already in use' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.email = normalizedEmail;
+    if (isVerified !== undefined) {
+      user.isEmailVerified = Boolean(isVerified);
+    }
+    await user.save();
+
+    res.json({
+      id: user._id,
+      email: user.email,
+      isEmailVerified: user.isEmailVerified,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateUserPin = async (req, res) => {
+  try {
+    const { pin } = req.body || {};
+    if (!pin) {
+      return res.status(400).json({ message: 'pin is required' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.pin = await bcrypt.hash(String(pin), salt);
+    await user.save();
+
+    res.json({ id: user._id, message: 'PIN updated' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -233,6 +346,15 @@ const listIcoTransactions = async (req, res) => {
     if (req.query.status) {
       filter.status = req.query.status;
     }
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {};
+      if (req.query.startDate) {
+        filter.createdAt.$gte = new Date(req.query.startDate);
+      }
+      if (req.query.endDate) {
+        filter.createdAt.$lte = new Date(req.query.endDate);
+      }
+    }
 
     const [transactions, total] = await Promise.all([
       IcoTransaction.find(filter)
@@ -308,6 +430,237 @@ const listReferralEarningsAdmin = async (req, res) => {
   }
 };
 
+const updateReferralEarningStatus = async (req, res) => {
+  try {
+    const { status, adminNote } = req.body || {};
+    if (!['pending', 'released', 'reversed'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const earning = await ReferralEarning.findById(req.params.id);
+    if (!earning) {
+      return res.status(404).json({ message: 'Referral earning not found' });
+    }
+
+    earning.status = status;
+    earning.reviewer = req.user._id;
+    earning.reviewedAt = new Date();
+    if (adminNote !== undefined) {
+      earning.adminNote = adminNote;
+    }
+    await earning.save();
+
+    res.json(earning);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const listBankChangeRequests = async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.type) {
+      filter.type = req.query.type;
+    }
+    if (req.query.userId && mongoose.Types.ObjectId.isValid(req.query.userId)) {
+      filter.user = req.query.userId;
+    }
+
+    const [requests, total] = await Promise.all([
+      BankChangeRequest.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('user', 'name email mobile'),
+      BankChangeRequest.countDocuments(filter),
+    ]);
+
+    res.json({
+      data: requests,
+      pagination: {
+        total,
+        page,
+        limit,
+        hasMore: skip + requests.length < total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const reviewBankChangeRequest = async (req, res) => {
+  try {
+    const { decision, note } = req.body || {};
+    if (!['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({ message: 'decision must be approved or rejected' });
+    }
+
+    const request = await BankChangeRequest.findById(req.params.id).populate('user');
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Request already processed' });
+    }
+
+    request.status = decision;
+    request.reviewer = req.user._id;
+    request.reviewedAt = new Date();
+    request.reviewNote = note;
+    await request.save();
+
+    if (decision === 'approved') {
+      if (request.type === 'bank') {
+        request.user.bankDetails = {
+          ...request.payload,
+          verified: true,
+          addedAt: new Date(),
+          addedBy: 'admin',
+        };
+      } else {
+        request.user.upiDetails = {
+          ...request.payload,
+          verified: true,
+          addedAt: new Date(),
+          addedBy: 'admin',
+        };
+      }
+      await request.user.save();
+    }
+
+    await createUserNotification({
+      userId: request.user._id,
+      title: `${request.type.toUpperCase()} request ${decision}`,
+      message:
+        decision === 'approved'
+          ? 'Your details update has been approved.'
+          : 'Your details update was rejected.',
+      type: 'admin',
+      metadata: { requestId: request._id, status: request.status },
+    });
+
+    res.json(request);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const listMobileChangeRequests = async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.userId && mongoose.Types.ObjectId.isValid(req.query.userId)) {
+      filter.user = req.query.userId;
+    }
+
+    const [requests, total] = await Promise.all([
+      MobileChangeRequest.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('user', 'name email mobile'),
+      MobileChangeRequest.countDocuments(filter),
+    ]);
+
+    res.json({
+      data: requests,
+      pagination: {
+        total,
+        page,
+        limit,
+        hasMore: skip + requests.length < total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const reviewMobileChangeRequest = async (req, res) => {
+  try {
+    const { decision, note } = req.body || {};
+    if (!['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({ message: 'decision must be approved or rejected' });
+    }
+
+    const request = await MobileChangeRequest.findById(req.params.id).populate('user');
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    if (request.status !== 'pending') {
+      return res.status(400).json({ message: 'Request already processed' });
+    }
+
+    if (decision === 'approved') {
+      const existingUser = await User.findOne({ mobile: request.newMobile });
+      if (existingUser) {
+        return res.status(400).json({ message: 'Mobile number already in use' });
+      }
+      request.user.mobile = request.newMobile;
+      request.user.isMobileVerified = true;
+      await request.user.save();
+    }
+
+    request.status = decision;
+    request.reviewer = req.user._id;
+    request.reviewedAt = new Date();
+    request.reviewNote = note;
+    await request.save();
+
+    await createUserNotification({
+      userId: request.user._id,
+      title: `Mobile change ${decision}`,
+      message:
+        decision === 'approved'
+          ? 'Your mobile number update was approved.'
+          : 'Your mobile number update was rejected.',
+      type: 'admin',
+      metadata: { requestId: request._id, status: request.status },
+    });
+
+    res.json(request);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getReferralTreeAdmin = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    const maxDepth = Math.min(Number(req.query.maxDepth) || 8, 8);
+    const users = await User.find({
+      $or: [{ _id: userId }, { referralPath: userId }],
+    })
+      .select('name email mobile referralCode referredBy referralPath referralLevel createdAt')
+      .lean();
+
+    const tree = buildReferralTree(users, userId);
+    pruneReferralTree(tree, maxDepth);
+    res.json(tree || {});
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   listUsers,
   getUserDetail,
@@ -315,4 +668,13 @@ module.exports = {
   getAdminStats,
   listIcoTransactions,
   listReferralEarningsAdmin,
+  updateUserStatus,
+  updateUserEmail,
+  updateUserPin,
+  updateReferralEarningStatus,
+  listBankChangeRequests,
+  reviewBankChangeRequest,
+  listMobileChangeRequests,
+  reviewMobileChangeRequest,
+  getReferralTreeAdmin,
 };

@@ -6,6 +6,9 @@ const { createPhonePePaymentPayload } = require('../utils/phonePe');
 const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
 const { createOrder: createRazorpayOrder, RAZORPAY_KEY_ID } = require('../utils/razorpay');
+const { resolveStages, isSellAllowed } = require('../utils/icoStages');
+const { verifyUserOtp } = require('../utils/otpHelpers');
+const User = require('../models/User');
 
 const getTokenPrice = () => {
   const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
@@ -24,9 +27,26 @@ const getHolding = async (userId) => {
 
 const getPublicIcoPrice = async (req, res) => {
   try {
+    const stages = resolveStages();
     res.json({
       tokenSymbol: getTokenSymbol(),
       price: getTokenPrice(),
+      stage: stages.activeStage,
+      stages: stages.stages,
+      sellAllowed: isSellAllowed(stages.activeStage?.key),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getIcoStages = async (_req, res) => {
+  try {
+    const stages = resolveStages();
+    res.json({
+      stages: stages.stages,
+      activeStage: stages.activeStage,
+      sellAllowed: isSellAllowed(stages.activeStage?.key),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -38,12 +58,15 @@ const getIcoSummary = async (req, res) => {
     const holding = await getHolding(req.user._id);
     const price = getTokenPrice();
     const kyc = await KycApplication.findOne({ user: req.user._id }).select('status');
+    const stages = resolveStages();
     res.json({
       tokenSymbol: getTokenSymbol(),
       price,
       balance: holding.balance,
       valuation: holding.balance * price,
       kycStatus: kyc ? kyc.status : 'not_submitted',
+      stage: stages.activeStage,
+      sellAllowed: isSellAllowed(stages.activeStage?.key),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -63,6 +86,8 @@ const initiateIcoBuy = async (req, res) => {
   const { tokenAmount, fiatAmount, useWallet, paymentMethod } = req.body;
   const price = getTokenPrice();
   const tokenSymbol = getTokenSymbol();
+  const stages = resolveStages();
+  const stageKey = stages.activeStage?.key;
 
   if (!tokenAmount && !fiatAmount) {
     return res.status(400).json({ message: 'tokenAmount or fiatAmount is required' });
@@ -103,6 +128,9 @@ const initiateIcoBuy = async (req, res) => {
         fiatAmount: amount,
         status: 'completed',
         paymentReference: 'wallet',
+        metadata: {
+          stageKey,
+        },
       });
 
       const holding = await IcoHolding.findOneAndUpdate(
@@ -163,6 +191,9 @@ const initiateIcoBuy = async (req, res) => {
         pricePerToken: price,
         fiatAmount: amount,
         status: 'initiated',
+        metadata: {
+          stageKey,
+        },
       });
 
       const order = await createRazorpayOrder({
@@ -200,6 +231,9 @@ const initiateIcoBuy = async (req, res) => {
       pricePerToken: price,
       fiatAmount: amount,
       status: 'initiated',
+      metadata: {
+        stageKey,
+      },
     });
 
     const session = createPhonePePaymentPayload({
@@ -226,7 +260,7 @@ const initiateIcoBuy = async (req, res) => {
 };
 
 const requestIcoSell = async (req, res) => {
-  const { tokenAmount } = req.body;
+  const { tokenAmount, otp } = req.body;
 
   if (!tokenAmount || Number(tokenAmount) <= 0) {
     return res.status(400).json({ message: 'Token amount is required' });
@@ -235,6 +269,26 @@ const requestIcoSell = async (req, res) => {
   const tokens = Number(tokenAmount);
 
   try {
+    const stages = resolveStages();
+    if (!isSellAllowed(stages.activeStage?.key)) {
+      return res.status(403).json({ message: 'Token selling is disabled during Pre-ICO' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const otpCheck = verifyUserOtp({ user, otp, purpose: 'ico_sell' });
+    if (!otpCheck.ok) {
+      return res.status(400).json({ message: otpCheck.message });
+    }
+
+    const kyc = await KycApplication.findOne({ user: req.user._id });
+    if (!kyc || kyc.status !== 'verified') {
+      return res.status(403).json({ message: 'KYC verification required before selling tokens' });
+    }
+
     const holding = await IcoHolding.findOne({ user: req.user._id });
     if (!holding || holding.balance < tokens) {
       return res.status(400).json({ message: 'Insufficient token balance' });
@@ -250,10 +304,15 @@ const requestIcoSell = async (req, res) => {
       pricePerToken: price,
       fiatAmount,
       status: 'pending',
+      metadata: {
+        stageKey: stages.activeStage?.key,
+      },
     });
 
     holding.balance -= tokens;
     await holding.save();
+    user.otp = undefined;
+    await user.save();
 
     res.status(201).json({
       transaction,
@@ -266,6 +325,7 @@ const requestIcoSell = async (req, res) => {
 
 module.exports = {
   getPublicIcoPrice,
+  getIcoStages,
   getIcoSummary,
   listIcoTransactions,
   initiateIcoBuy,
