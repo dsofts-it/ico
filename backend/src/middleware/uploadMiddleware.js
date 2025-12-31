@@ -1,13 +1,37 @@
 const multer = require('multer');
+const path = require('path');
 
 const parsedMax = Number(process.env.KYC_UPLOAD_MAX_MB);
 const MAX_MB = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : 5;
 const storage = multer.memoryStorage();
 
+const ALLOWED_IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'bmp',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'svg',
+  'avif',
+  'ico',
+]);
+
 const imageFileFilter = (_req, file, cb) => {
-  if (file.mimetype && file.mimetype.startsWith('image/')) {
+  const mime = (file.mimetype || '').toLowerCase();
+  if (mime.startsWith('image/')) {
     return cb(null, true);
   }
+
+  const ext = path.extname(file.originalname || '').toLowerCase().replace('.', '');
+  if (ext && ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+    return cb(null, true);
+  }
+
   return cb(new Error('Only image uploads are allowed'));
 };
 

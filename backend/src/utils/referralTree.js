@@ -8,7 +8,8 @@ const buildReferralTree = (users, rootId) => {
     const depth = referralPath.findIndex((ref) => ref?.toString() === rootKey);
     nodeMap.set(id, {
       ...user,
-      depth: depth === -1 ? 0 : depth,
+      depth: depth === -1 ? 0
+       : depth,
       children: [],
     });
   });
