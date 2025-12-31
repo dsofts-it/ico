@@ -10,6 +10,7 @@ const IcoHolding = require('../models/IcoHolding');
 const StakingPosition = require('../models/StakingPosition');
 const { sendOtpForUser, verifyUserOtp } = require('../utils/otpHelpers');
 const { buildReferralTree } = require('../utils/referralTree');
+const { uploadImageBuffer, isCloudinaryConfigured } = require('../utils/cloudinary');
 
 const REQUIRED_FIELDS = ['line1', 'city', 'state', 'postalCode'];
 const ADDRESS_FIELDS = [
@@ -80,6 +81,9 @@ const COUNTRY_LIST = [
   { code: 'VN', name: 'Vietnam', status: 'coming_soon' },
   { code: 'AE', name: 'UAE', status: 'coming_soon' },
 ];
+
+const PROFILE_FOLDER =
+  (process.env.CLOUDINARY_PROFILE_FOLDER || 'profiles').replace(/^\/+|\/+$/g, '') || 'profiles';
 
 const validateRequiredFields = (address) => {
   const missing = REQUIRED_FIELDS.filter((field) => {
@@ -283,6 +287,12 @@ const getProfile = async (req, res) => {
       email: user.email,
       mobile: user.mobile,
       country: user.country,
+      profileImageUrl: user.profileImageUrl,
+      profileLocks: {
+        name: Boolean(user.nameUpdatedAt),
+        profileImage: Boolean(user.profileImageUrl),
+        bankDetails: Boolean(user.bankDetails && user.bankDetails.accountNumber),
+      },
       selfieUrl: kyc?.selfieUrl,
       verification: {
         email: user.isEmailVerified,
@@ -305,6 +315,65 @@ const getProfile = async (req, res) => {
   } catch (error) {
     const status = error.statusCode || 500;
     res.status(status).json({ message: error.message });
+  }
+};
+
+const updateProfileName = async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ message: 'name is required' });
+    }
+
+    const user = await ensureUserExists(req.user._id);
+    if (user.nameUpdatedAt) {
+      return res.status(400).json({ message: 'Name already set. Contact support to change it.' });
+    }
+
+    user.name = name;
+    user.nameUpdatedAt = new Date();
+    await user.save();
+
+    return res.json({ name: user.name, nameUpdatedAt: user.nameUpdatedAt });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message });
+  }
+};
+
+const uploadProfileImage = async (req, res) => {
+  try {
+    const user = await ensureUserExists(req.user._id);
+    if (user.profileImageUrl) {
+      return res.status(400).json({ message: 'Profile image already set. Contact support to change it.' });
+    }
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ message: 'No image uploaded' });
+    }
+
+    if (!isCloudinaryConfigured()) {
+      return res.status(500).json({ message: 'Cloudinary is not configured on the server' });
+    }
+
+    const folder = `${PROFILE_FOLDER}/${req.user._id}`;
+    const uploadResult = await uploadImageBuffer(req.file.buffer, {
+      folder,
+      publicId: `profile-${Date.now()}`,
+    });
+
+    user.profileImageUrl = uploadResult.secure_url;
+    user.profileImagePublicId = uploadResult.public_id;
+    user.profileImageSetAt = new Date();
+    await user.save();
+
+    return res.status(201).json({
+      profileImageUrl: user.profileImageUrl,
+      profileImageSetAt: user.profileImageSetAt,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message });
   }
 };
 
@@ -729,6 +798,8 @@ module.exports = {
   deleteAddress,
   setDefaultAddress,
   getProfile,
+  updateProfileName,
+  uploadProfileImage,
   getOnboardingStatus,
   requestActionOtp,
   confirmEmailChange,

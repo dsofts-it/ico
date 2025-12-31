@@ -54,6 +54,9 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  nameUpdatedAt: {
+    type: Date,
+  },
   email: {
     type: String,
     trim: true,
@@ -152,6 +155,17 @@ const userSchema = new mongoose.Schema({
     verified: { type: Boolean, default: false },
     addedAt: { type: Date },
     addedBy: { type: String, enum: ['user', 'admin'], default: 'user' },
+  },
+  profileImageUrl: {
+    type: String,
+    trim: true,
+  },
+  profileImagePublicId: {
+    type: String,
+    trim: true,
+  },
+  profileImageSetAt: {
+    type: Date,
   },
   addresses: [addressSchema],
   isEmailVerified: {

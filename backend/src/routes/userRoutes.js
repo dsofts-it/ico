@@ -6,6 +6,8 @@ const {
   deleteAddress,
   setDefaultAddress,
   getProfile,
+  updateProfileName,
+  uploadProfileImage,
   getOnboardingStatus,
   requestActionOtp,
   confirmEmailChange,
@@ -28,12 +30,15 @@ const {
   markNotificationRead,
 } = require('../controllers/notificationController');
 const { protect } = require('../middleware/authMiddleware');
+const { singleImageUpload } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 
 router.use(protect);
 
 router.get('/profile', getProfile);
+router.patch('/profile/name', updateProfileName);
+router.post('/profile/image', singleImageUpload('document'), uploadProfileImage);
 router.get('/onboarding-status', getOnboardingStatus);
 router.get('/countries', listCountries);
 router.patch('/country', updateCountry);
