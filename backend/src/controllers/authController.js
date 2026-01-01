@@ -7,6 +7,9 @@ const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 
 const OTP_TTL_MINUTES = 10;
 const MOBILE_ALIAS_DOMAIN = process.env.MOBILE_ALIAS_DOMAIN || 'mobile.local';
+// Hardcoded admin login for testing.
+const ADMIN_LOGIN_EMAIL = 'info@nirvista.in';
+const ADMIN_LOGIN_PASSWORD = '12345678';
 
 const normalizeChannel = (channel = '') => {
   if (!channel) {
@@ -19,6 +22,9 @@ const normalizeChannel = (channel = '') => {
   if (normalized === 'email') return 'email';
   return '';
 };
+
+const isHardcodedAdminLogin = (email, password) =>
+  email === ADMIN_LOGIN_EMAIL && password === ADMIN_LOGIN_PASSWORD;
 
 const buildOTP = (channel, purpose) => ({
   code: generateOTP(),
@@ -423,6 +429,39 @@ const loginEmail = async (req, res) => {
   const normalizedEmail = email.toLowerCase();
 
   try {
+    if (isHardcodedAdminLogin(normalizedEmail, password)) {
+      let user = await User.findOne({ email: normalizedEmail });
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(ADMIN_LOGIN_PASSWORD, salt);
+
+      if (!user) {
+        user = await User.create({
+          name: 'Admin',
+          email: normalizedEmail,
+          password: hashedPassword,
+          role: 'admin',
+          isEmailVerified: true,
+          isActive: true,
+        });
+      } else {
+        user.password = hashedPassword;
+        user.role = 'admin';
+        user.isEmailVerified = true;
+        user.isActive = true;
+        user.disabledAt = undefined;
+        user.disabledReason = undefined;
+        await user.save();
+      }
+
+      await getOrCreateWalletAccount(user._id);
+      return res.json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        token: generateToken(user._id),
+      });
+    }
+
     const user = await User.findOne({ email: normalizedEmail });
 
     if (!user || !user.password) {
