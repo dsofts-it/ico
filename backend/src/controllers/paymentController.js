@@ -4,10 +4,66 @@ const IcoHolding = require('../models/IcoHolding');
 const WalletTransaction = require('../models/WalletTransaction');
 const WalletAccount = require('../models/WalletAccount');
 const { distributeReferralCommission } = require('../utils/referralService');
-const { verifySignature: verifyRazorpaySignature } = require('../utils/razorpay');
+const {
+  verifySignature: verifyRazorpaySignature,
+  createOrder: createRazorpayOrder,
+  RAZORPAY_KEY_ID,
+} = require('../utils/razorpay');
+const { getOrCreateWalletAccount } = require('../utils/walletAccount');
 const { createUserNotification } = require('../utils/notificationService');
 
 const PHONEPE_SUCCESS_CODES = ['PAYMENT_SUCCESS', 'SUCCESS'];
+
+const createRazorpayWalletOrder = async (req, res) => {
+  try {
+    const { amount, currency = 'INR', description } = req.body || {};
+    const numericAmount = Number(amount);
+
+    if (!numericAmount || numericAmount <= 0) {
+      return res.status(400).json({ message: 'Valid amount is required' });
+    }
+
+    const normalizedCurrency = String(currency || 'INR').toUpperCase();
+    const wallet = await getOrCreateWalletAccount(req.user._id);
+    const receipt = `wallet_${wallet._id}_${Date.now()}`;
+
+    const order = await createRazorpayOrder({
+      amount: numericAmount,
+      currency: normalizedCurrency,
+      receipt,
+      notes: {
+        userId: String(req.user._id),
+        purpose: 'wallet_topup',
+      },
+    });
+
+    const walletTx = await WalletTransaction.create({
+      user: req.user._id,
+      wallet: wallet._id,
+      type: 'credit',
+      category: 'topup',
+      amount: numericAmount,
+      currency: normalizedCurrency,
+      status: 'pending',
+      description: description || 'Wallet top-up via Razorpay',
+      paymentGateway: 'razorpay',
+      merchantTransactionId: order.id,
+      razorpayOrderId: order.id,
+      razorpayResponse: order,
+    });
+
+    return res.json({
+      orderId: order.id,
+      amountInPaise: order.amount,
+      currency: order.currency,
+      key: RAZORPAY_KEY_ID,
+      transactionId: walletTx._id,
+      mock: Boolean(order.mock),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 const handlePhonePeCallback = async (req, res) => {
   try {
@@ -221,6 +277,7 @@ const handleRazorpayVerify = async (req, res) => {
 };
 
 module.exports = {
+  createRazorpayWalletOrder,
   handlePhonePeCallback,
   handleRazorpayVerify,
 };
