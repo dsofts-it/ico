@@ -23,6 +23,34 @@ const normalizeChannel = (channel = '') => {
   return '';
 };
 
+// Normalize mobile numbers to a consistent, searchable form (last 10 digits for IN)
+const normalizeMobileNumber = (mobile = '') => {
+  const raw = String(mobile || '').trim();
+
+  if (!raw) {
+    return { raw: '', normalized: '', variants: [] };
+  }
+
+  const digitsOnly = raw.replace(/\D/g, '');
+  const core = digitsOnly.length > 10 ? digitsOnly.slice(-10) : digitsOnly;
+  const normalized = core || raw;
+
+  const variants = new Set([raw, normalized]);
+
+  // Common alternate representations we want to catch during lookups
+  if (core && core.length === 10) {
+    variants.add(`+91${core}`);
+    variants.add(`91${core}`);
+    variants.add(`0${core}`);
+  }
+
+  return {
+    raw,
+    normalized,
+    variants: Array.from([...variants].filter(Boolean)),
+  };
+};
+
 const isHardcodedAdminLogin = (email, password) =>
   email === ADMIN_LOGIN_EMAIL && password === ADMIN_LOGIN_PASSWORD;
 
@@ -36,15 +64,19 @@ const buildOTP = (channel, purpose) => ({
 // Normalize identifier to detect email vs mobile
 const parseIdentifier = (identifier = '') => {
   const trimmed = identifier.trim();
-  if (!trimmed) return { type: '', value: '' };
+  if (!trimmed) return { type: '', value: '', variants: [], raw: '' };
   if (trimmed.includes('@')) {
-    return { type: 'email', value: trimmed.toLowerCase() };
+    const email = trimmed.toLowerCase();
+    return { type: 'email', value: email, variants: [email], raw: email };
   }
-  return { type: 'mobile', value: trimmed };
+
+  const { normalized, variants, raw } = normalizeMobileNumber(trimmed);
+  return { type: 'mobile', value: normalized, variants, raw };
 };
 
 const buildMobileAliasEmail = (mobile) => {
-  const cleaned = String(mobile || '').trim();
+  const { normalized } = normalizeMobileNumber(mobile);
+  const cleaned = String(normalized || '').trim();
   if (!cleaned) return undefined;
   return `${cleaned}@${MOBILE_ALIAS_DOMAIN}`;
 };
@@ -55,6 +87,17 @@ const ensureActiveUser = (user, res) => {
     return false;
   }
   return true;
+};
+
+const findUserByMobile = async (mobile) => {
+  const { variants } = normalizeMobileNumber(mobile);
+  if (!variants.length) return null;
+  return User.findOne({ mobile: { $in: variants } });
+};
+
+const getSmsDestination = ({ variants = [], normalized = '', raw = '' }) => {
+  const numericVariant = variants.find((value) => /^\+?\d+$/.test(value));
+  return numericVariant || normalized || raw;
 };
 
 // @desc    Combined signup (email + mobile) with OTP to both
@@ -74,11 +117,20 @@ const signupCombinedInit = async (req, res) => {
   }
 
   const normalizedEmail = email.toLowerCase();
-  const normalizedMobile = mobile.trim();
+  const {
+    normalized: normalizedMobile,
+    variants: mobileVariants,
+    raw: rawMobile,
+  } = normalizeMobileNumber(mobile);
+  const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
+
+  if (!normalizedMobile || normalizedMobile.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
     const existingUser = await User.findOne({
-      $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }],
+      $or: [{ email: normalizedEmail }, { mobile: { $in: mobileVariants } }],
     });
 
     const salt = password ? await bcrypt.genSalt(10) : null;
@@ -110,7 +162,7 @@ const signupCombinedInit = async (req, res) => {
 
       await existingUser.save();
       await sendOTP(existingUser.email, otpPayload.code, 'email');
-      await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+      await sendOTP(smsDestination, otpPayload.code, 'sms');
 
       return res.status(200).json({
         message: 'Signup re-initiated. OTP sent to email and mobile.',
@@ -139,7 +191,7 @@ const signupCombinedInit = async (req, res) => {
     }
 
     await sendOTP(user.email, otpPayload.code, 'email');
-    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+    await sendOTP(smsDestination, otpPayload.code, 'sms');
 
     res.status(201).json({
       message: 'Signup initiated. OTP sent to email and mobile.',
@@ -239,10 +291,19 @@ const signupMobileInit = async (req, res) => {
     return res.status(400).json({ message: 'Name, mobile, and referral code are required' });
   }
 
-  const normalizedMobile = mobile.trim();
+  const {
+    normalized: normalizedMobile,
+    variants: mobileVariants,
+    raw: rawMobile,
+  } = normalizeMobileNumber(mobile);
+  const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
+
+  if (!normalizedMobile || normalizedMobile.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
-    const existingUser = await User.findOne({ mobile: normalizedMobile });
+    const existingUser = await findUserByMobile(mobile);
     const otpPayload = buildOTP('mobile', 'signup');
     const aliasEmail = buildMobileAliasEmail(normalizedMobile);
 
@@ -270,7 +331,7 @@ const signupMobileInit = async (req, res) => {
       }
 
       await existingUser.save();
-      await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+      await sendOTP(smsDestination, otpPayload.code, 'sms');
 
       return res.status(200).json({
         message: 'Signup re-initiated. OTP sent to mobile.',
@@ -295,7 +356,7 @@ const signupMobileInit = async (req, res) => {
       return res.status(err.statusCode || 400).json({ message: err.message });
     }
 
-    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+    await sendOTP(smsDestination, otpPayload.code, 'sms');
 
     res.status(201).json({
       message: 'Signup initiated. OTP sent to mobile.',
@@ -499,10 +560,19 @@ const loginMobileInit = async (req, res) => {
     return res.status(400).json({ message: 'Mobile number is required' });
   }
 
-  const normalizedMobile = mobile.trim();
+  const {
+    normalized: normalizedMobile,
+    variants: mobileVariants,
+    raw: rawMobile,
+  } = normalizeMobileNumber(mobile);
+  const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
+
+  if (!normalizedMobile || normalizedMobile.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
-    const user = await User.findOne({ mobile: normalizedMobile });
+    const user = await findUserByMobile(mobile);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -517,7 +587,7 @@ const loginMobileInit = async (req, res) => {
     user.otp = otpPayload;
 
     await user.save();
-    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+    await sendOTP(smsDestination, otpPayload.code, 'sms');
 
     res.json({ message: 'OTP sent to mobile', userId: user._id });
   } catch (error) {
@@ -535,10 +605,14 @@ const loginMobileVerify = async (req, res) => {
     return res.status(400).json({ message: 'Mobile number and OTP are required' });
   }
 
-  const normalizedMobile = mobile.trim();
+  const { normalized: normalizedMobile } = normalizeMobileNumber(mobile);
+
+  if (!normalizedMobile || normalizedMobile.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
-    const user = await User.findOne({ mobile: normalizedMobile });
+    const user = await findUserByMobile(mobile);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -590,10 +664,19 @@ const loginMobile = async (req, res) => {
     return res.status(400).json({ message: 'Mobile number is required' });
   }
 
-  const normalizedMobile = mobile.trim();
+  const {
+    normalized: normalizedMobile,
+    variants: mobileVariants,
+    raw: rawMobile,
+  } = normalizeMobileNumber(mobile);
+  const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
+
+  if (!normalizedMobile || normalizedMobile.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
-    const user = await User.findOne({ mobile: normalizedMobile });
+    const user = await findUserByMobile(mobile);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -652,7 +735,7 @@ const loginMobile = async (req, res) => {
     const otpPayload = buildOTP('mobile', 'login');
     user.otp = otpPayload;
     await user.save();
-    await sendOTP(normalizedMobile, otpPayload.code, 'sms');
+    await sendOTP(smsDestination, otpPayload.code, 'sms');
 
     return res.json({
       message: 'OTP sent to mobile',
@@ -674,11 +757,18 @@ const loginOtpInit = async (req, res) => {
     return res.status(400).json({ message: 'Email or mobile is required' });
   }
 
-  const { type, value } = parseIdentifier(identifier);
+  const { type, value, variants, raw } = parseIdentifier(identifier);
+
+  if (!type || !value) {
+    return res.status(400).json({ message: 'Valid email or mobile is required' });
+  }
+  if (type === 'mobile' && value.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
     const user = await User.findOne(
-      type === 'email' ? { email: value } : { mobile: value },
+      type === 'email' ? { email: value } : { mobile: { $in: variants } },
     );
 
     if (!user) {
@@ -698,7 +788,11 @@ const loginOtpInit = async (req, res) => {
     user.otp = otpPayload;
     await user.save();
 
-    await sendOTP(value, otpPayload.code, type || 'email');
+    const smsDestination = type === 'mobile'
+      ? getSmsDestination({ variants, normalized: value, raw })
+      : value;
+
+    await sendOTP(smsDestination, otpPayload.code, type || 'email');
 
     res.json({ message: 'OTP sent for login', userId: user._id });
   } catch (error) {
@@ -716,11 +810,18 @@ const loginOtpVerify = async (req, res) => {
     return res.status(400).json({ message: 'Identifier and OTP are required' });
   }
 
-  const { type, value } = parseIdentifier(identifier);
+  const { type, value, variants } = parseIdentifier(identifier);
+
+  if (!type || !value) {
+    return res.status(400).json({ message: 'Valid email or mobile is required' });
+  }
+  if (type === 'mobile' && value.length < 10) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
+  }
 
   try {
     const user = await User.findOne(
-      type === 'email' ? { email: value } : { mobile: value },
+      type === 'email' ? { email: value } : { mobile: { $in: variants } },
     );
 
     if (!user) {
@@ -763,16 +864,17 @@ const loginPIN = async (req, res) => {
     return res.status(400).json({ message: 'Identifier and PIN are required' });
   }
 
-  const trimmedIdentifier = identifier.trim();
-  const normalizedIdentifier = trimmedIdentifier.includes('@')
-    ? trimmedIdentifier.toLowerCase()
-    : trimmedIdentifier;
+  const { type, value, variants } = parseIdentifier(identifier);
+
+  if (!type || !value) {
+    return res.status(400).json({ message: 'Valid email or mobile is required' });
+  }
 
   try {
     // Find user by email OR mobile
-    const user = await User.findOne({
-      $or: [{ email: normalizedIdentifier }, { mobile: normalizedIdentifier }],
-    });
+    const user = await User.findOne(
+      type === 'email' ? { email: value } : { mobile: { $in: variants } },
+    );
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -783,8 +885,8 @@ const loginPIN = async (req, res) => {
       return res.status(400).json({ message: 'PIN not set for this user' });
     }
 
-    const identifierMatchedEmail = user.email && user.email === normalizedIdentifier;
-    const identifierMatchedMobile = user.mobile && user.mobile === normalizedIdentifier;
+    const identifierMatchedEmail = user.email && user.email === value;
+    const identifierMatchedMobile = user.mobile && variants.includes(user.mobile);
 
     if (identifierMatchedEmail && !user.isEmailVerified) {
       return res.status(403).json({ message: 'Email not verified' });

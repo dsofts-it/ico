@@ -528,6 +528,7 @@ const requestMobileChange = async (req, res) => {
       user: req.user._id,
       status: 'pending',
     });
+
     if (existingRequest) {
       return res.status(400).json({ message: 'Mobile change request already pending' });
     }
@@ -542,35 +543,21 @@ const requestMobileChange = async (req, res) => {
     const status = error.statusCode || 500;
     res.status(status).json({ message: error.message });
   }
+
 };
 
 const addBankDetails = async (req, res) => {
+
   try {
+
     const user = await ensureUserExists(req.user._id);
-    const otp = req.body?.otp;
     const bankInput = sanitizeBankInput(req.body);
     validateBankInput(bankInput);
 
     if (user.bankDetails && user.bankDetails.accountNumber) {
-      const existing = await BankChangeRequest.findOne({
-        user: req.user._id,
-        type: 'bank',
-        status: 'pending',
+      return res.status(400).json({
+        message: 'Bank details already added. Contact customer care to update.',
       });
-      if (existing) {
-        return res.status(400).json({ message: 'Bank change request already pending' });
-      }
-      const request = await BankChangeRequest.create({
-        user: req.user._id,
-        type: 'bank',
-        payload: bankInput,
-      });
-      return res.status(201).json({ request, status: 'pending' });
-    }
-
-    const otpCheck = verifyUserOtp({ user, otp, purpose: 'bank_add' });
-    if (!otpCheck.ok) {
-      return res.status(400).json({ message: otpCheck.message });
     }
 
     user.bankDetails = {
@@ -579,10 +566,10 @@ const addBankDetails = async (req, res) => {
       addedAt: new Date(),
       addedBy: 'user',
     };
-    user.otp = undefined;
     await user.save();
 
     return res.status(201).json(user.bankDetails);
+
   } catch (error) {
     const status = error.statusCode || 500;
     res.status(status).json({ message: error.message });
