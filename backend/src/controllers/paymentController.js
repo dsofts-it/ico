@@ -25,7 +25,8 @@ const createRazorpayWalletOrder = async (req, res) => {
 
     const normalizedCurrency = String(currency || 'INR').toUpperCase();
     const wallet = await getOrCreateWalletAccount(req.user._id);
-    const receipt = `wallet_${wallet._id}_${Date.now()}`;
+    // Razorpay receipt must be <= 40 chars; keep a short, unique receipt
+    const receipt = `w_${wallet._id.toString().slice(-12)}_${Date.now().toString().slice(-6)}`;
 
     const order = await createRazorpayOrder({
       amount: numericAmount,
