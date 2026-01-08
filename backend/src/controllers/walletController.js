@@ -324,6 +324,7 @@ const initiateWalletTopup = async (req, res) => {
           amount: order.amount,
           currency: order.currency,
           keyId: RAZORPAY_KEY_ID,
+          key: RAZORPAY_KEY_ID, // alias used by Razorpay Checkout
           notes: order.notes,
           mock: order.mock || false,
         },

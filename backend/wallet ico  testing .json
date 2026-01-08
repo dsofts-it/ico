@@ -778,6 +778,21 @@
       "name": "Payments",
       "item": [
         {
+          "name": "Razorpay Wallet Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500,\n  \"currency\": \"INR\",\n  \"description\": \"Wallet top-up via Razorpay\"\n}"
+            },
+            "url": "{{baseUrl}}/api/payments/razorpay/order"
+          }
+        },
+        {
           "name": "PhonePe Callback",
           "request": {
             "method": "POST",
@@ -1070,6 +1085,8 @@
   ],
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "razorpayKeyId", "value": "rzp_test_1DP5mmOlF5G5ag" },
+    { "key": "razorpayKeySecret", "value": "test_secret_1234567890" },
     { "key": "name", "value": "Test User" },
     { "key": "mobile", "value": "9000000000" },
     { "key": "newMobile", "value": "9000000001" },

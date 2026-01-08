@@ -188,9 +188,26 @@ const handlePhonePeCallback = async (req, res) => {
 
 const handleRazorpayVerify = async (req, res) => {
   try {
-    const { orderId, paymentId, signature, transactionId } = req.body || {};
+    // Accept both camelCase and Razorpay default field names from the checkout response
+    const {
+      orderId: bodyOrderId,
+      paymentId: bodyPaymentId,
+      signature: bodySignature,
+      transactionId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body || {};
+
+    const orderId = bodyOrderId || razorpay_order_id;
+    const paymentId = bodyPaymentId || razorpay_payment_id;
+    const signature = bodySignature || razorpay_signature;
+
     if (!orderId || !paymentId || !signature) {
-      return res.status(400).json({ message: 'orderId, paymentId and signature are required' });
+      return res.status(400).json({
+        message: 'orderId, paymentId and signature are required',
+        receivedKeys: Object.keys(req.body || {}),
+      });
     }
 
     const valid = verifyRazorpaySignature({ orderId, paymentId, signature });
