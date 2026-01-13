@@ -72,6 +72,10 @@ Server will run on `http://localhost:5000`
 | POST | `/api/auth/login/mobile-verify` | Verify mobile OTP & login |
 | POST | `/api/auth/login/pin` | Login with PIN |
 
+Notes:
+- Mobile auth endpoints accept optional `countryCode` (for example `+91` or `91`) along with `mobile`.
+- You can also pass a full E.164 number in `mobile`/`identifier` (for example `+14155550123`).
+
 ### Catalog & Ecommerce
 | Method | Endpoint | Description |
 |--------|----------|-------------|

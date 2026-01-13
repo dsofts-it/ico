@@ -97,10 +97,13 @@ const sendEmailOTP = async (email, otp) => {
 // Send OTP via SMS using Twilio
 const sendSmsOTP = async (mobile, otp) => {
   try {
-    // Ensure mobile number includes country code (default to +91 if missing)
-    let formattedMobile = mobile;
-    if (!mobile.startsWith('+')) {
-      formattedMobile = '+91' + mobile;
+    // Ensure mobile number includes country code (fallback to +91 for 10-digit local numbers)
+    let formattedMobile = String(mobile || '').trim();
+    const digitsOnly = formattedMobile.replace(/\D/g, '');
+    if (!formattedMobile.startsWith('+')) {
+      formattedMobile = digitsOnly.length > 10
+        ? `+${digitsOnly}`
+        : `+91${digitsOnly}`;
     }
 
     const client = twilio(

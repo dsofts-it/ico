@@ -58,6 +58,7 @@ VARIABLES = [
     {"key": "userEmail", "value": "user+ico@example.com"},
     {"key": "userPassword", "value": "Password123!"},
     {"key": "mobileNumber", "value": "9998887777"},
+    {"key": "countryCode", "value": "+91"},
     {"key": "userPin", "value": "1234"},
     {"key": "otpCode", "value": "000000"},
     {"key": "mobileOtp", "value": "000000"},
@@ -87,6 +88,7 @@ AUTH_ITEMS = [
             "name": "{{userName}}",
             "email": "{{userEmail}}",
             "mobile": "{{mobileNumber}}",
+            "countryCode": "{{countryCode}}",
             "password": "{{userPassword}}",
         },
         [("data && data.userId", "userId")],
@@ -104,7 +106,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/signup/mobile-init",
         JSON_HEADER,
-        {"name": "{{userName}}", "mobile": "{{mobileNumber}}"},
+        {"name": "{{userName}}", "mobile": "{{mobileNumber}}", "countryCode": "{{countryCode}}"},
         [("data && data.userId", "userId")],
     ),
     item(
@@ -135,7 +137,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/login/mobile-init",
         JSON_HEADER,
-        {"mobile": "{{mobileNumber}}"},
+        {"mobile": "{{mobileNumber}}", "countryCode": "{{countryCode}}"},
         [("data && data.userId", "userId")],
     ),
     item(
@@ -143,7 +145,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/login/mobile-verify",
         JSON_HEADER,
-        {"mobile": "{{mobileNumber}}", "otp": "{{mobileOtp}}"},
+        {"mobile": "{{mobileNumber}}", "countryCode": "{{countryCode}}", "otp": "{{mobileOtp}}"},
         [("data && data.token", "userToken"), ("data && data._id", "userId")],
     ),
     item(
@@ -151,7 +153,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/login/otp-init",
         JSON_HEADER,
-        {"identifier": "{{userEmail}}"},
+        {"identifier": "{{userEmail}}", "countryCode": "{{countryCode}}"},
         [("data && data.userId", "userId")],
     ),
     item(
@@ -159,7 +161,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/login/otp-verify",
         JSON_HEADER,
-        {"identifier": "{{userEmail}}", "otp": "{{otpCode}}"},
+        {"identifier": "{{userEmail}}", "countryCode": "{{countryCode}}", "otp": "{{otpCode}}"},
         [("data && data.token", "userToken"), ("data && data._id", "userId")],
     ),
     item(
@@ -167,7 +169,7 @@ AUTH_ITEMS = [
         "POST",
         "api/auth/login/pin",
         JSON_HEADER,
-        {"identifier": "{{userEmail}}", "pin": "{{userPin}}"},
+        {"identifier": "{{userEmail}}", "countryCode": "{{countryCode}}", "pin": "{{userPin}}"},
         [("data && data.token", "userToken"), ("data && data._id", "userId")],
     ),
 ]

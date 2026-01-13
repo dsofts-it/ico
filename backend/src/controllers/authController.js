@@ -23,31 +23,75 @@ const normalizeChannel = (channel = '') => {
   return '';
 };
 
-// Normalize mobile numbers to a consistent, searchable form (last 10 digits for IN)
-const normalizeMobileNumber = (mobile = '') => {
+const normalizeCountryCode = (countryCode = '') => {
+  const raw = String(countryCode || '').trim();
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  return digits.replace(/^00/, '');
+};
+
+// Normalize mobile numbers to a consistent, searchable form with optional country code support
+const normalizeMobileNumber = (mobile = '', countryCode = '') => {
   const raw = String(mobile || '').trim();
+  const countryDigits = normalizeCountryCode(countryCode);
 
   if (!raw) {
-    return { raw: '', normalized: '', variants: [] };
+    return {
+      raw: '',
+      normalized: '',
+      variants: [],
+      digits: '',
+      isValid: false,
+      minDigits: countryDigits ? 6 : 10,
+    };
   }
 
   const digitsOnly = raw.replace(/\D/g, '');
-  const core = digitsOnly.length > 10 ? digitsOnly.slice(-10) : digitsOnly;
-  const normalized = core || raw;
+  const hasExplicitCountry = raw.startsWith('+') || Boolean(countryDigits);
+  let e164 = '';
 
-  const variants = new Set([raw, normalized]);
+  if (raw.startsWith('+') && digitsOnly) {
+    e164 = `+${digitsOnly}`;
+  } else if (countryDigits && digitsOnly) {
+    const alreadyHasCountry = digitsOnly.startsWith(countryDigits)
+      && digitsOnly.length > countryDigits.length + 5;
+    e164 = `+${alreadyHasCountry ? digitsOnly : countryDigits + digitsOnly}`;
+  } else if (digitsOnly) {
+    e164 = digitsOnly.length > 10 ? `+${digitsOnly}` : `+91${digitsOnly}`;
+  }
 
-  // Common alternate representations we want to catch during lookups
-  if (core && core.length === 10) {
-    variants.add(`+91${core}`);
-    variants.add(`91${core}`);
-    variants.add(`0${core}`);
+  const normalized = e164 || digitsOnly || raw;
+  const normalizedDigits = normalized.replace(/\D/g, '');
+  const minDigits = hasExplicitCountry ? 6 : 10;
+  const isValid = normalizedDigits.length >= minDigits;
+
+  const variants = new Set();
+  if (raw) variants.add(raw);
+  if (digitsOnly) variants.add(digitsOnly);
+  if (normalized) variants.add(normalized);
+  if (e164) {
+    variants.add(e164);
+    variants.add(e164.replace(/^\+/, ''));
+  }
+
+  const core10 = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : '';
+  const looksIndian = digitsOnly.startsWith('91') && digitsOnly.length >= 12;
+  const includeIndiaVariants = countryDigits === '91'
+    || (!countryDigits && (digitsOnly.length <= 10 || looksIndian));
+  if (core10 && includeIndiaVariants) {
+    variants.add(core10);
+    variants.add(`+91${core10}`);
+    variants.add(`91${core10}`);
+    variants.add(`0${core10}`);
   }
 
   return {
     raw,
     normalized,
     variants: Array.from([...variants].filter(Boolean)),
+    digits: normalizedDigits,
+    isValid,
+    minDigits,
   };
 };
 
@@ -62,16 +106,50 @@ const buildOTP = (channel, purpose) => ({
 });
 
 // Normalize identifier to detect email vs mobile
-const parseIdentifier = (identifier = '') => {
-  const trimmed = identifier.trim();
-  if (!trimmed) return { type: '', value: '', variants: [], raw: '' };
+const parseIdentifier = (identifier = '', countryCode = '', fallbackMobile = '') => {
+  const trimmed = String(identifier || fallbackMobile || '').trim();
+  if (!trimmed) {
+    return {
+      type: '',
+      value: '',
+      variants: [],
+      raw: '',
+      digits: '',
+      isValid: false,
+      minDigits: 10,
+    };
+  }
   if (trimmed.includes('@')) {
     const email = trimmed.toLowerCase();
-    return { type: 'email', value: email, variants: [email], raw: email };
+    return {
+      type: 'email',
+      value: email,
+      variants: [email],
+      raw: email,
+      digits: '',
+      isValid: true,
+      minDigits: 0,
+    };
   }
 
-  const { normalized, variants, raw } = normalizeMobileNumber(trimmed);
-  return { type: 'mobile', value: normalized, variants, raw };
+  const {
+    normalized,
+    variants,
+    raw,
+    digits,
+    isValid,
+    minDigits,
+  } = normalizeMobileNumber(trimmed, countryCode);
+
+  return {
+    type: 'mobile',
+    value: normalized,
+    variants,
+    raw,
+    digits,
+    isValid,
+    minDigits,
+  };
 };
 
 const buildMobileAliasEmail = (mobile) => {
@@ -89,14 +167,16 @@ const ensureActiveUser = (user, res) => {
   return true;
 };
 
-const findUserByMobile = async (mobile) => {
-  const { variants } = normalizeMobileNumber(mobile);
+const findUserByMobile = async (mobile, countryCode = '') => {
+  const { variants } = normalizeMobileNumber(mobile, countryCode);
   if (!variants.length) return null;
   return User.findOne({ mobile: { $in: variants } });
 };
 
 const getSmsDestination = ({ variants = [], normalized = '', raw = '' }) => {
-  const numericVariant = variants.find((value) => /^\+?\d+$/.test(value));
+  const plusVariant = variants.find((value) => /^\+\d+$/.test(value));
+  if (plusVariant) return plusVariant;
+  const numericVariant = variants.find((value) => /^\d+$/.test(value));
   return numericVariant || normalized || raw;
 };
 
@@ -108,6 +188,7 @@ const signupCombinedInit = async (req, res) => {
     name,
     email,
     mobile,
+    countryCode,
     password,
     referralCode,
   } = req.body;
@@ -121,10 +202,11 @@ const signupCombinedInit = async (req, res) => {
     normalized: normalizedMobile,
     variants: mobileVariants,
     raw: rawMobile,
-  } = normalizeMobileNumber(mobile);
+    isValid: isMobileValid,
+  } = normalizeMobileNumber(mobile, countryCode);
   const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
 
-  if (!normalizedMobile || normalizedMobile.length < 10) {
+  if (!isMobileValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
@@ -285,7 +367,7 @@ const signupEmailInit = async (req, res) => {
 // @route   POST /api/auth/signup/mobile-init
 // @access  Public
 const signupMobileInit = async (req, res) => {
-  const { name, mobile, referralCode } = req.body;
+  const { name, mobile, countryCode, referralCode } = req.body;
 
   if (!name || !mobile || !referralCode) {
     return res.status(400).json({ message: 'Name, mobile, and referral code are required' });
@@ -295,15 +377,16 @@ const signupMobileInit = async (req, res) => {
     normalized: normalizedMobile,
     variants: mobileVariants,
     raw: rawMobile,
-  } = normalizeMobileNumber(mobile);
+    isValid: isMobileValid,
+  } = normalizeMobileNumber(mobile, countryCode);
   const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
 
-  if (!normalizedMobile || normalizedMobile.length < 10) {
+  if (!isMobileValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
   try {
-    const existingUser = await findUserByMobile(mobile);
+    const existingUser = await findUserByMobile(mobile, countryCode);
     const otpPayload = buildOTP('mobile', 'signup');
     const aliasEmail = buildMobileAliasEmail(normalizedMobile);
 
@@ -554,7 +637,7 @@ const loginEmail = async (req, res) => {
 // @route   POST /api/auth/login/mobile-init
 // @access  Public
 const loginMobileInit = async (req, res) => {
-  const { mobile } = req.body;
+  const { mobile, countryCode } = req.body;
 
   if (!mobile) {
     return res.status(400).json({ message: 'Mobile number is required' });
@@ -564,15 +647,16 @@ const loginMobileInit = async (req, res) => {
     normalized: normalizedMobile,
     variants: mobileVariants,
     raw: rawMobile,
-  } = normalizeMobileNumber(mobile);
+    isValid: isMobileValid,
+  } = normalizeMobileNumber(mobile, countryCode);
   const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
 
-  if (!normalizedMobile || normalizedMobile.length < 10) {
+  if (!isMobileValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
   try {
-    const user = await findUserByMobile(mobile);
+    const user = await findUserByMobile(mobile, countryCode);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -599,20 +683,23 @@ const loginMobileInit = async (req, res) => {
 // @route   POST /api/auth/login/mobile-verify
 // @access  Public
 const loginMobileVerify = async (req, res) => {
-  const { mobile, otp } = req.body;
+  const { mobile, countryCode, otp } = req.body;
 
   if (!mobile || !otp) {
     return res.status(400).json({ message: 'Mobile number and OTP are required' });
   }
 
-  const { normalized: normalizedMobile } = normalizeMobileNumber(mobile);
+  const {
+    normalized: normalizedMobile,
+    isValid: isMobileValid,
+  } = normalizeMobileNumber(mobile, countryCode);
 
-  if (!normalizedMobile || normalizedMobile.length < 10) {
+  if (!isMobileValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
   try {
-    const user = await findUserByMobile(mobile);
+    const user = await findUserByMobile(mobile, countryCode);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -658,7 +745,7 @@ const loginMobileVerify = async (req, res) => {
 // @route   POST /api/auth/login/mobile
 // @access  Public
 const loginMobile = async (req, res) => {
-  const { mobile, otp, pin } = req.body;
+  const { mobile, countryCode, otp, pin } = req.body;
 
   if (!mobile) {
     return res.status(400).json({ message: 'Mobile number is required' });
@@ -668,15 +755,16 @@ const loginMobile = async (req, res) => {
     normalized: normalizedMobile,
     variants: mobileVariants,
     raw: rawMobile,
-  } = normalizeMobileNumber(mobile);
+    isValid: isMobileValid,
+  } = normalizeMobileNumber(mobile, countryCode);
   const smsDestination = getSmsDestination({ variants: mobileVariants, normalized: normalizedMobile, raw: rawMobile });
 
-  if (!normalizedMobile || normalizedMobile.length < 10) {
+  if (!isMobileValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
   try {
-    const user = await findUserByMobile(mobile);
+    const user = await findUserByMobile(mobile, countryCode);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -751,18 +839,19 @@ const loginMobile = async (req, res) => {
 // @route   POST /api/auth/login/otp-init
 // @access  Public
 const loginOtpInit = async (req, res) => {
-  const { identifier } = req.body;
+  const { identifier, mobile, countryCode } = req.body;
+  const input = identifier || mobile;
 
-  if (!identifier) {
+  if (!input) {
     return res.status(400).json({ message: 'Email or mobile is required' });
   }
 
-  const { type, value, variants, raw } = parseIdentifier(identifier);
+  const { type, value, variants, raw, isValid } = parseIdentifier(input, countryCode);
 
   if (!type || !value) {
     return res.status(400).json({ message: 'Valid email or mobile is required' });
   }
-  if (type === 'mobile' && value.length < 10) {
+  if (type === 'mobile' && !isValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
@@ -804,18 +893,19 @@ const loginOtpInit = async (req, res) => {
 // @route   POST /api/auth/login/otp-verify
 // @access  Public
 const loginOtpVerify = async (req, res) => {
-  const { identifier, otp } = req.body;
+  const { identifier, mobile, countryCode, otp } = req.body;
+  const input = identifier || mobile;
 
-  if (!identifier || !otp) {
+  if (!input || !otp) {
     return res.status(400).json({ message: 'Identifier and OTP are required' });
   }
 
-  const { type, value, variants } = parseIdentifier(identifier);
+  const { type, value, variants, isValid } = parseIdentifier(input, countryCode);
 
   if (!type || !value) {
     return res.status(400).json({ message: 'Valid email or mobile is required' });
   }
-  if (type === 'mobile' && value.length < 10) {
+  if (type === 'mobile' && !isValid) {
     return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
@@ -858,16 +948,20 @@ const loginOtpVerify = async (req, res) => {
 // @route   POST /api/auth/login/pin
 // @access  Public (but requires identifier)
 const loginPIN = async (req, res) => {
-  const { identifier, pin } = req.body; // identifier can be email or mobile
+  const { identifier, mobile, countryCode, pin } = req.body; // identifier can be email or mobile
+  const input = identifier || mobile;
 
-  if (!identifier || !pin) {
+  if (!input || !pin) {
     return res.status(400).json({ message: 'Identifier and PIN are required' });
   }
 
-  const { type, value, variants } = parseIdentifier(identifier);
+  const { type, value, variants, isValid } = parseIdentifier(input, countryCode);
 
   if (!type || !value) {
     return res.status(400).json({ message: 'Valid email or mobile is required' });
+  }
+  if (type === 'mobile' && !isValid) {
+    return res.status(400).json({ message: 'Valid mobile number is required' });
   }
 
   try {

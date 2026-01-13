@@ -17,7 +17,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{name}}\",\n  \"mobile\": \"{{mobile}}\",\n  \"referralCode\": \"{{referralCode}}\"\n}"
+              "raw": "{\n  \"name\": \"{{name}}\",\n  \"mobile\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\",\n  \"referralCode\": \"{{referralCode}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/signup/mobile-init"
           }
@@ -45,7 +45,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{name}}\",\n  \"email\": \"{{email}}\",\n  \"mobile\": \"{{mobile}}\",\n  \"password\": \"{{password}}\",\n  \"referralCode\": \"{{referralCode}}\"\n}"
+              "raw": "{\n  \"name\": \"{{name}}\",\n  \"email\": \"{{email}}\",\n  \"mobile\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\",\n  \"password\": \"{{password}}\",\n  \"referralCode\": \"{{referralCode}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/signup/combined-init"
           }
@@ -88,7 +88,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"identifier\": \"{{mobile}}\"\n}"
+              "raw": "{\n  \"identifier\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login/otp-init"
           }
@@ -102,7 +102,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"identifier\": \"{{mobile}}\",\n  \"otp\": \"{{otp}}\"\n}"
+              "raw": "{\n  \"identifier\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\",\n  \"otp\": \"{{otp}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login/otp-verify"
           }
@@ -116,7 +116,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"identifier\": \"{{mobile}}\",\n  \"pin\": \"{{pin}}\"\n}"
+              "raw": "{\n  \"identifier\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\",\n  \"pin\": \"{{pin}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login/pin"
           }
@@ -130,7 +130,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"mobile\": \"{{mobile}}\"\n}"
+              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login/mobile-init"
           }
@@ -144,7 +144,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"otp\": \"{{otp}}\"\n}"
+              "raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"countryCode\": \"{{countryCode}}\",\n  \"otp\": \"{{otp}}\"\n}"
             },
             "url": "{{baseUrl}}/api/auth/login/mobile-verify"
           }
@@ -369,7 +369,7 @@
           }
         },
         {
-          "name": "Change PIN",
+          "name": "Change PIN - Send OTP",
           "request": {
             "method": "POST",
             "header": [
@@ -378,7 +378,22 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"currentPin\": \"{{pin}}\",\n  \"newPin\": \"{{newPin}}\"\n}"
+              "raw": "{}"
+            },
+            "url": "{{baseUrl}}/api/user/pin/change"
+          }
+        },
+        {
+          "name": "Change PIN - Confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPin\": \"{{newPin}}\",\n  \"confirmPin\": \"{{confirmPin}}\",\n  \"otp\": \"{{otp}}\"\n}"
             },
             "url": "{{baseUrl}}/api/user/pin/change"
           }
@@ -1089,12 +1104,14 @@
     { "key": "razorpayKeySecret", "value": "test_secret_1234567890" },
     { "key": "name", "value": "Test User" },
     { "key": "mobile", "value": "9000000000" },
+    { "key": "countryCode", "value": "+91" },
     { "key": "newMobile", "value": "9000000001" },
     { "key": "email", "value": "test@example.com" },
     { "key": "newEmail", "value": "new@example.com" },
     { "key": "password", "value": "password123" },
     { "key": "pin", "value": "1234" },
     { "key": "newPin", "value": "4321" },
+    { "key": "confirmPin", "value": "4321" },
     { "key": "otp", "value": "123456" },
     { "key": "referralCode", "value": "REFCODE" },
     { "key": "upiId", "value": "user@upi" },

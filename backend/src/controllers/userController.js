@@ -481,24 +481,48 @@ const confirmEmailChange = async (req, res) => {
 
 const changePin = async (req, res) => {
   try {
-    const { currentPin, newPin } = req.body || {};
+    const { newPin, confirmPin, otp } = req.body || {};
+    const user = await ensureUserExists(req.user._id);
+
+    if (!otp) {
+      const destination = user.mobile;
+      if (!destination) {
+        return res.status(400).json({ message: 'Mobile number not available for OTP' });
+      }
+
+      const otpPayload = await sendOtpForUser({
+        user,
+        channel: 'mobile',
+        purpose: 'pin_change',
+        destination,
+      });
+
+      return res.status(202).json({
+        message: 'OTP sent',
+        purpose: 'pin_change',
+        expiresAt: otpPayload.expiresAt,
+      });
+    }
+
     if (!newPin) {
       return res.status(400).json({ message: 'newPin is required' });
     }
-    const user = await ensureUserExists(req.user._id);
+    if (!confirmPin) {
+      return res.status(400).json({ message: 'confirmPin is required' });
+    }
+    const newPinString = String(newPin);
+    if (newPinString !== String(confirmPin)) {
+      return res.status(400).json({ message: 'PIN confirmation does not match' });
+    }
 
-    if (user.pin) {
-      if (!currentPin) {
-        return res.status(400).json({ message: 'currentPin is required' });
-      }
-      const pinOk = await user.matchPin(String(currentPin));
-      if (!pinOk) {
-        return res.status(400).json({ message: 'Invalid current PIN' });
-      }
+    const otpCheck = verifyUserOtp({ user, otp, purpose: 'pin_change' });
+    if (!otpCheck.ok) {
+      return res.status(400).json({ message: otpCheck.message });
     }
 
     const salt = await bcrypt.genSalt(10);
-    user.pin = await bcrypt.hash(String(newPin), salt);
+    user.pin = await bcrypt.hash(newPinString, salt);
+    user.otp = undefined;
     await user.save();
 
     res.json({ message: 'PIN updated' });
