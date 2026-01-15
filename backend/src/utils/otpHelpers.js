@@ -28,7 +28,15 @@ const verifyUserOtp = ({ user, otp, purpose }) => {
   if (!user.otp || !user.otp.code) {
     return { ok: false, message: 'No OTP pending verification' };
   }
-  if (user.otp.code !== otp) {
+  const normalizedOtp = otp === undefined || otp === null
+    ? ''
+    : String(otp).trim();
+
+  if (!normalizedOtp) {
+    return { ok: false, message: 'OTP is required' };
+  }
+
+  if (user.otp.code !== normalizedOtp) {
     return { ok: false, message: 'Invalid OTP' };
   }
   if (user.otp.expiresAt && user.otp.expiresAt < new Date()) {
