@@ -27,6 +27,7 @@ const ADDRESS_FIELDS = [
 ];
 
 const BANK_FIELDS = ['accountHolderName', 'accountNumber', 'ifsc', 'bankName'];
+const OTP_PURPOSES = ['withdrawal', 'bank_add', 'upi_add', 'change_email', 'ico_sell'];
 
 const sanitizeAddressInput = (payload = {}) => {
   const address = {};
@@ -396,14 +397,13 @@ const getOnboardingStatus = async (req, res) => {
   }
 };
 
-  const requestActionOtp = async (req, res) => {
-    try {
-      const { purpose, channel, newEmail } = req.body || {};
-      const allowedPurposes = ['withdrawal', 'bank_add', 'upi_add', 'change_email', 'ico_sell'];
-      const normalizedPurpose = String(purpose || '').trim();
-      if (!allowedPurposes.includes(normalizedPurpose)) {
-        return res.status(400).json({ message: 'Invalid OTP purpose' });
-      }
+const requestActionOtp = async (req, res) => {
+  try {
+    const { purpose, channel, newEmail } = req.body || {};
+    const normalizedPurpose = String(purpose || '').trim();
+    if (!OTP_PURPOSES.includes(normalizedPurpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
+    }
 
     const normalizedChannel = channel === 'mobile' ? 'mobile' : 'email';
     const user = await ensureUserExists(req.user._id);
@@ -442,6 +442,38 @@ const getOnboardingStatus = async (req, res) => {
       message: 'OTP sent',
       purpose: normalizedPurpose,
       expiresAt: otpPayload.expiresAt,
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message });
+  }
+};
+
+const verifyActionOtp = async (req, res) => {
+  try {
+    const { purpose, otp } = req.body || {};
+    const normalizedPurpose = String(purpose || '').trim();
+
+    if (!OTP_PURPOSES.includes(normalizedPurpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
+    }
+
+    if (!otp) {
+      return res.status(400).json({ message: 'OTP is required' });
+    }
+
+    const user = await ensureUserExists(req.user._id);
+    const otpCheck = verifyUserOtp({ user, otp, purpose: normalizedPurpose });
+
+    if (!otpCheck.ok) {
+      return res.status(400).json({ message: otpCheck.message });
+    }
+
+    res.json({
+      message: 'OTP verified',
+      purpose: normalizedPurpose,
+      expiresAt: user.otp?.expiresAt,
+      channel: user.otp?.channel,
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -823,6 +855,7 @@ module.exports = {
   uploadProfileImage,
   getOnboardingStatus,
   requestActionOtp,
+  verifyActionOtp,
   confirmEmailChange,
   changePin,
   requestMobileChange,

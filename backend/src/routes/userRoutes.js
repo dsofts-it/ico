@@ -10,6 +10,7 @@ const {
   uploadProfileImage,
   getOnboardingStatus,
   requestActionOtp,
+  verifyActionOtp,
   confirmEmailChange,
   changePin,
   requestMobileChange,
@@ -43,6 +44,7 @@ router.get('/onboarding-status', getOnboardingStatus);
 router.get('/countries', listCountries);
 router.patch('/country', updateCountry);
 router.post('/otp/init', requestActionOtp);
+router.post('/otp/verify', verifyActionOtp);
 router.post('/email/change-verify', confirmEmailChange);
 router.post('/pin/change', changePin);
 router.post('/mobile/change-request', requestMobileChange);
