@@ -575,24 +575,34 @@ const addBankDetails = async (req, res) => {
   try {
 
     const user = await ensureUserExists(req.user._id);
+    const otp = req.body?.otp;
     const bankInput = sanitizeBankInput(req.body);
     validateBankInput(bankInput);
 
-    if (user.bankDetails && user.bankDetails.accountNumber) {
-      return res.status(400).json({
-        message: 'Bank details already added. Contact customer care to update.',
-      });
+    if (!otp) {
+      return res.status(400).json({ message: 'OTP is required to add or update bank details' });
     }
 
+    const otpCheck = verifyUserOtp({ user, otp, purpose: 'bank_add' });
+    if (!otpCheck.ok) {
+      return res.status(400).json({ message: otpCheck.message });
+    }
+
+    const isUpdate = Boolean(user.bankDetails && user.bankDetails.accountNumber);
     user.bankDetails = {
       ...bankInput,
       verified: true,
       addedAt: new Date(),
       addedBy: 'user',
     };
+    user.otp = undefined;
     await user.save();
 
-    return res.status(201).json(user.bankDetails);
+    return res.status(201).json({
+      message: `Bank details ${isUpdate ? 'updated' : 'added'}`,
+      status: isUpdate ? 'updated' : 'added',
+      bankDetails: user.bankDetails,
+    });
 
   } catch (error) {
     const status = error.statusCode || 500;
