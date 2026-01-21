@@ -11,17 +11,46 @@ const MobileChangeRequest = require('../models/MobileChangeRequest');
 const bcrypt = require('bcryptjs');
 const { buildReferralTree } = require('../utils/referralTree');
 const { createUserNotification } = require('../utils/notificationService');
-
-const getTokenPrice = () => {
-  const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
-  if (Number.isNaN(price) || price <= 0) return 10;
-  return price;
-};
+const { getTokenPrice, setTokenPrice, getTokenSymbol } = require('../utils/tokenPrice');
 
 const pruneReferralTree = (node, maxDepth) => {
   if (!node || !node.children) return;
   node.children = node.children.filter((child) => child.depth <= maxDepth);
   node.children.forEach((child) => pruneReferralTree(child, maxDepth));
+};
+
+const buildKycStatusMap = async (userIds, statusFilter) => {
+  if (!userIds.length) return new Map();
+  const query = { user: { $in: userIds } };
+  if (statusFilter) {
+    query.status = statusFilter;
+  }
+  const kycs = await KycApplication.find(query).select('user status');
+  return new Map(kycs.map((k) => [k.user.toString(), k.status]));
+};
+
+const attachKycStatus = (users, kycMap, statusFilter) => {
+  const mapped = users.map((user) => {
+    const doc = user.toObject ? user.toObject() : { ...user };
+    return {
+      ...doc,
+      kycStatus: kycMap.get(user._id.toString()) || 'not_submitted',
+    };
+  });
+  if (!statusFilter) return mapped;
+  return mapped.filter((user) => user.kycStatus === statusFilter);
+};
+
+const buildReferralTreePayload = async (userId, maxDepth) => {
+  const users = await User.find({
+    $or: [{ _id: userId }, { referralPath: userId }],
+  })
+    .select('name email mobile referralCode referredBy referralPath referralLevel createdAt')
+    .lean();
+
+  const tree = buildReferralTree(users, userId);
+  pruneReferralTree(tree, maxDepth);
+  return tree || null;
 };
 
 // Admin: paginated user list with KYC badge
@@ -56,28 +85,9 @@ const listUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
 
-    // Attach KYC status (optional filter by status)
     const userIds = users.map((u) => u._id);
-    let kycQuery = { user: { $in: userIds } };
-    
-    if (kycStatus) {
-      kycQuery.status  = kycStatus;
-    }
-
-    const kycs = userIds.length ? await KycApplication.find(kycQuery).select('user status') : [];
-    const kycMap = new Map(kycs.map((k) => [k.user.toString(), k.status]));
-
-    const data = users
-      .map((u) => ({
-        ...u.toObject(),
-        kycStatus: kycMap.get(u._id.toString()) || 'not_submitted',
-      }))
-      // If KYC filter applied, hide users that don't match
-      .filter((u) => {
-        if (!kycStatus) return true;
-        return u.kycStatus === kycStatus;
-      });
-
+    const kycMap = await buildKycStatusMap(userIds, kycStatus);
+    const data = attachKycStatus(users, kycMap, kycStatus);
     const totalForResponse = kycStatus ? data.length : total;
     res.json({
       data,
@@ -86,6 +96,68 @@ const listUsers = async (req, res) => {
         page,
         limit,
         hasMore: !kycStatus && skip + data.length < total,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const countUsers = async (_req, res) => {
+  try {
+    const total = await User.countDocuments();
+    res.json({ total });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getLatestSignups = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 100);
+    const users = await User.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select('-password -pin')
+      .lean();
+
+    const userIds = users.map((u) => u._id);
+    const kycMap = await buildKycStatusMap(userIds);
+    const data = attachKycStatus(users, kycMap);
+
+    res.json({ data });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const listUsersWithDetails = async (req, res) => {
+  try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 1000);
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      User.find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('-password -pin')
+        .lean(),
+      User.countDocuments(),
+    ]);
+
+    const userIds = users.map((u) => u._id);
+    const kycMap = await buildKycStatusMap(userIds);
+    const data = attachKycStatus(users, kycMap);
+
+    res.json({
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        hasMore: skip + users.length < total,
       },
     });
   } catch (error) {
@@ -112,6 +184,7 @@ const getUserDetail = async (req, res) => {
     ]);
 
     const price = getTokenPrice();
+    const tokenSymbol = getTokenSymbol();
     res.json({
       user,
       kyc: kyc || { status: 'not_submitted' },
@@ -127,9 +200,9 @@ const getUserDetail = async (req, res) => {
         ? {
             balance: holding.balance,
             valuation: holding.balance * price,
-            tokenSymbol: process.env.ICO_TOKEN_SYMBOL || 'ICOX',
+            tokenSymbol,
           }
-        : { balance: 0, valuation: 0, tokenSymbol: process.env.ICO_TOKEN_SYMBOL || 'ICOX' },
+        : { balance: 0, valuation: 0, tokenSymbol },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -276,7 +349,7 @@ const listKycApplications = async (req, res) => {
 // Admin: global stats snapshot
 const getAdminStats = async (_req, res) => {
   try {
-    const tokenSymbol = process.env.ICO_TOKEN_SYMBOL || 'ICOX';
+    const tokenSymbol = getTokenSymbol();
     const price = getTokenPrice();
 
     const [totalUsers, kycVerified, kycPending, holdingsAgg, icoAgg, walletAgg, walletTxAgg] =
@@ -329,6 +402,37 @@ const getAdminStats = async (_req, res) => {
   }
 };
 
+const getTokenPriceAdmin = (_req, res) => {
+  try {
+    res.json({
+      tokenSymbol: getTokenSymbol(),
+      price: getTokenPrice(),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const setTokenPriceAdmin = async (req, res) => {
+  try {
+    const { price } = req.body || {};
+    if (price === undefined || price === null) {
+      return res.status(400).json({ message: 'price is required' });
+    }
+    const numericPrice = Number(price);
+    if (Number.isNaN(numericPrice) || numericPrice <= 0) {
+      return res.status(400).json({ message: 'price must be a positive number' });
+    }
+    const updatedPrice = await setTokenPrice(numericPrice);
+    res.json({
+      tokenSymbol: getTokenSymbol(),
+      price: updatedPrice,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Admin: global ICO transactions list
 const listIcoTransactions = async (req, res) => {
   try {
@@ -374,6 +478,56 @@ const listIcoTransactions = async (req, res) => {
         hasMore: skip + transactions.length < total,
       },
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const listRecentTransactions = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+    const [walletTxs, icoTxs] = await Promise.all([
+      WalletTransaction.find({})
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .populate('user', 'name email mobile referralCode'),
+      IcoTransaction.find({})
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .populate('user', 'name email mobile referralCode'),
+    ]);
+
+    const combined = [
+      ...walletTxs.map((tx) => ({
+        id: tx._id,
+        kind: 'wallet',
+        user: tx.user,
+        type: tx.type,
+        category: tx.category,
+        amount: tx.amount,
+        currency: tx.currency,
+        status: tx.status,
+        description: tx.description,
+        metadata: tx.metadata,
+        createdAt: tx.createdAt,
+      })),
+      ...icoTxs.map((tx) => ({
+        id: tx._id,
+        kind: 'ico',
+        user: tx.user,
+        type: tx.type,
+        status: tx.status,
+        tokenAmount: tx.tokenAmount,
+        fiatAmount: tx.fiatAmount,
+        pricePerToken: tx.pricePerToken,
+        metadata: tx.metadata,
+        createdAt: tx.createdAt,
+      })),
+    ]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+
+    res.json({ data: combined });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -640,6 +794,34 @@ const reviewMobileChangeRequest = async (req, res) => {
   }
 };
 
+const searchReferralTree = async (req, res) => {
+  try {
+    const query = (req.query.q || '').trim();
+    if (!query) {
+      return res.status(400).json({ message: 'Query is required' });
+    }
+    const maxDepth = Math.min(Number(req.query.maxDepth) || 8, 8);
+    const regex = new RegExp(query, 'i');
+    const user = await User.findOne({
+      $or: [{ name: regex }, { mobile: regex }, { referralCode: regex }],
+    })
+      .select('name email mobile referralCode referredBy referralPath referralLevel createdAt')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const tree = await buildReferralTreePayload(user._id.toString(), maxDepth);
+    res.json({
+      user,
+      tree: tree || {},
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getReferralTreeAdmin = async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -647,14 +829,7 @@ const getReferralTreeAdmin = async (req, res) => {
       return res.status(400).json({ message: 'Invalid user id' });
     }
     const maxDepth = Math.min(Number(req.query.maxDepth) || 8, 8);
-    const users = await User.find({
-      $or: [{ _id: userId }, { referralPath: userId }],
-    })
-      .select('name email mobile referralCode referredBy referralPath referralLevel createdAt')
-      .lean();
-
-    const tree = buildReferralTree(users, userId);
-    pruneReferralTree(tree, maxDepth);
+    const tree = await buildReferralTreePayload(userId, maxDepth);
     res.json(tree || {});
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -663,10 +838,16 @@ const getReferralTreeAdmin = async (req, res) => {
 
 module.exports = {
   listUsers,
+  listUsersWithDetails,
+  getLatestSignups,
+  countUsers,
   getUserDetail,
   listKycApplications,
   getAdminStats,
+  getTokenPriceAdmin,
+  setTokenPriceAdmin,
   listIcoTransactions,
+  listRecentTransactions,
   listReferralEarningsAdmin,
   updateUserStatus,
   updateUserEmail,
@@ -676,5 +857,6 @@ module.exports = {
   reviewBankChangeRequest,
   listMobileChangeRequests,
   reviewMobileChangeRequest,
+  searchReferralTree,
   getReferralTreeAdmin,
 };

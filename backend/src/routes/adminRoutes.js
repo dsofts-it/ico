@@ -12,11 +12,18 @@ const {
 } = require('../controllers/adminController');
 const {
   listUsers,
+  listUsersWithDetails,
+  getLatestSignups,
+  countUsers,
   getUserDetail,
   listKycApplications,
   getAdminStats,
+  getTokenPriceAdmin,
+  setTokenPriceAdmin,
   listIcoTransactions,
+  listRecentTransactions,
   listReferralEarningsAdmin,
+  searchReferralTree,
   updateUserStatus,
   updateUserEmail,
   updateUserPin,
@@ -42,9 +49,14 @@ router.use(protect, requireAdmin);
 
 // Admin overview
 router.get('/stats', getAdminStats);
+router.get('/users/count', countUsers);
+router.get('/users/latest', getLatestSignups);
+router.get('/ico/price', getTokenPriceAdmin);
+router.post('/ico/price', setTokenPriceAdmin);
 
 // Users & KYC
 router.get('/users', listUsers);
+router.get('/users/details', listUsersWithDetails);
 router.get('/users/:id', getUserDetail);
 router.patch('/users/:id/status', updateUserStatus);
 router.patch('/users/:id/email', updateUserEmail);
@@ -53,9 +65,11 @@ router.get('/kyc', listKycApplications);
 router.get('/kyc/:kycId', getKycDetailAdmin);
 router.patch('/kyc/:kycId/status', adminReviewKyc);
 router.get('/ico/transactions', listIcoTransactions);
+router.get('/transactions/recent', listRecentTransactions);
 router.get('/referrals/earnings', listReferralEarningsAdmin);
 router.patch('/referrals/earnings/:id', updateReferralEarningStatus);
 router.get('/referrals/tree/:userId', getReferralTreeAdmin);
+router.get('/referrals/search', searchReferralTree);
 
 router.get('/bank/requests', listBankChangeRequests);
 router.patch('/bank/requests/:id', reviewBankChangeRequest);

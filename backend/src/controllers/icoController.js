@@ -8,17 +8,8 @@ const { distributeReferralCommission } = require('../utils/referralService');
 const { createOrder: createRazorpayOrder, RAZORPAY_KEY_ID } = require('../utils/razorpay');
 const { resolveStages, isSellAllowed } = require('../utils/icoStages');
 const { verifyUserOtp } = require('../utils/otpHelpers');
+const { getTokenPrice, getTokenSymbol } = require('../utils/tokenPrice');
 const User = require('../models/User');
-
-const getTokenPrice = () => {
-  const price = Number(process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10);
-  if (Number.isNaN(price) || price <= 0) {
-    return 10;
-  }
-  return price;
-};
-
-const getTokenSymbol = () => process.env.ICO_TOKEN_SYMBOL || 'ICOX';
 
 const getHolding = async (userId) => {
   const holding = await IcoHolding.findOne({ user: userId });

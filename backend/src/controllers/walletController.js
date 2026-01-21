@@ -16,6 +16,7 @@ const { distributeReferralCommission } = require('../utils/referralService');
 const { resolveStages } = require('../utils/icoStages');
 const { verifyUserOtp } = require('../utils/otpHelpers');
 const { createUserNotification } = require('../utils/notificationService');
+const { getTokenPrice, getTokenSymbol } = require('../utils/tokenPrice');
 
 const CALLBACK_URL =
   process.env.PHONEPE_CALLBACK_URL ||
@@ -50,14 +51,10 @@ const sanitizeTransaction = (transaction) => {
   return doc;
 };
 
-const getTokenMeta = () => {
-  const tokenSymbol = process.env.ICO_TOKEN_SYMBOL || 'ICOX';
-  const rawPrice = Number(
-    process.env.ICO_PRICE_INR || process.env.ICO_TOKEN_PRICE_INR || 10,
-  );
-  const tokenPrice = Number.isNaN(rawPrice) || rawPrice <= 0 ? 10 : rawPrice;
-  return { tokenSymbol, tokenPrice };
-};
+const getTokenMeta = () => ({
+  tokenSymbol: getTokenSymbol(),
+  tokenPrice: getTokenPrice(),
+});
 
 const ensureKycVerified = async (userId) => {
   const kyc = await KycApplication.findOne({ user: userId });
